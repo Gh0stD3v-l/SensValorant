@@ -3,7 +3,7 @@ import { SensFinder } from './finder.js';
 import { summarize, compare } from './scoring.js';
 import { makeBlockPlan, TYPE_INFO } from './targets.js';
 import { diagnose, sensTendency, sensTrends, sessionTrend, trialMetrics, movementProfile } from './analysis.js';
-import { fitCurve, equilibrium, combineEstimates, rangeVerdict, CURVE_WEIGHT } from './model.js';
+import { fitCurve, equilibrium, combineEstimates, rangeVerdict, combineSessions, CURVE_WEIGHT } from './model.js';
 import { mean } from './stats.js';
 import { Drill, CountMeter } from './drill.js';
 import { ReplayPlayer } from './replay.js';
@@ -14,6 +14,8 @@ const num = (n, d = 3) => n.toLocaleString('pt-BR', { minimumFractionDigits: d, 
 const readNum = (el) => parseFloat(String(el.value).replace(',', '.'));
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const HISTORY_KEY = 'sensfinder.history';
+const SESSIONS_KEY = 'sensfinder.sessions';
+const SCOPED_KEY = 'sensfinder.scoped';
 const CAL_KEY = 'sensfinder.cal';
 const hasMouse = window.matchMedia('(pointer: fine)').matches;
 
@@ -32,7 +34,7 @@ $$('.tab').forEach((b) => b.addEventListener('click', () => {
 }));
 
 // ---------------- Navegação entre passos ----------------
-const STEPS = ['profile', 'start', 'calibrate', 'test', 'range', 'choice', 'result', 'replay'];
+const STEPS = ['profile', 'start', 'calibrate', 'test', 'range', 'choice', 'result', 'scoped', 'replay'];
 let current = 'profile';
 function show(step) {
   if (current === 'replay' && step !== 'replay') player.stop();
@@ -57,7 +59,7 @@ const syncMode = () => { $('#attempts-wrap').hidden = document.querySelector('in
 $$('input[name=mode]').forEach((r) => r.addEventListener('change', syncMode));
 syncMode();
 
-const st = { profile: null, finder: null, mode: 'range', results: null, warmup: false, trials: [], points: [], clock: 0, rangeQueue: [], rangeLog: { A: [], B: [] } };
+const st = { kind: 'sens', profile: null, finder: null, mode: 'range', results: null, warmup: false, trials: [], points: [], clock: 0, rangeQueue: [], rangeLog: { A: [], B: [] } };
 
 function readProfile() {
   const dpi = readNum($('#f-dpi'));
@@ -198,6 +200,8 @@ $('#btn-begin').addEventListener('click', () => {
   st.points = [];
   st.clock = 0;
   st.stoppedByUser = false;
+  st.kind = 'sens';
+  st.sessionId = Date.now().toString(36);
   st.finder = new SensFinder({ startSens: st.startSens, dpi: p.dpi });
   if (st.mode === 'browser' && $('#f-warmup').checked) {
     st.warmup = true;
@@ -289,9 +293,13 @@ function nextRangeAttempt() {
   const item = st.rangeQueue[0];
   const cand = st.finder.pair[item.side];
   show('range');
-  $('#range-title').textContent = `${roundLabel()} · Sens ${item.side}`;
+  const scoped = st.kind === 'scoped';
+  $('#range-title').textContent = `${roundLabel()} · ${scoped ? 'Multiplicador' : 'Sens'} ${item.side}`;
   $('#range-sub').textContent = `tentativa ${item.n}`;
-  $('#range-sens').textContent = num(cand.sens);
+  $('#range-sens').textContent = scoped ? `${num(cand.sens)}×` : num(cand.sens);
+  $('#range-what').textContent = scoped ? 'Coloque em "Multiplicador de sensibilidade com mira"' : 'Coloque no Valorant';
+  $('#routine-sens').hidden = scoped;
+  $('#routine-scoped').hidden = !scoped;
   $('#range-kills').value = '';
   $$('input[name=feel]').forEach((c) => { c.checked = false; });
   $$('input[name=rating]').forEach((c) => { c.checked = false; });
@@ -334,8 +342,8 @@ const LEVEL_TEXT = { real: 'diferença real', 'provável': 'provavelmente real',
 function rangeSuggestion(A, B) {
   const notes = [];
   const lowS = A.kind === 'low' ? A : B, highS = A.kind === 'high' ? A : B;
-  if (highS.flags.over && !lowS.flags.over) notes.push('Você passou do alvo só na sens mais alta: a ideal deve estar entre as duas ou abaixo.');
-  if (lowS.flags.under && !highS.flags.under) notes.push('Você chegou curto só na sens mais baixa: a ideal deve estar entre as duas ou acima.');
+  if (highS.flags.over && !lowS.flags.over) notes.push('Você passou do alvo só na opção mais alta: o ideal deve estar entre as duas ou abaixo.');
+  if (lowS.flags.under && !highS.flags.under) notes.push('Você chegou curto só na opção mais baixa: o ideal deve estar entre as duas ou acima.');
   if (A.flags.shaky && B.flags.shaky) notes.push('Mira tremendo nas duas: pode ser cansaço. Descanse 1 minuto antes da próxima rodada.');
   const v = rangeVerdict(A.kills, B.kills);
   const byRating = A.rating != null && B.rating != null && Math.abs(A.rating - B.rating) >= 1 ? (A.rating > B.rating ? 'A' : 'B') : null;
@@ -377,7 +385,8 @@ function showChoice() {
   const f = st.finder;
   $('#choice-title').textContent = `${roundLabel()}: qual foi melhor?`;
   let suggestion = null;
-  const head = '<thead><tr><th></th><th>Sens A</th><th>Sens B</th></tr></thead>';
+  const noun = st.kind === 'scoped' ? 'Multiplicador' : 'Sens';
+  const head = `<thead><tr><th></th><th>${noun} A</th><th>${noun} B</th></tr></thead>`;
   if (st.mode === 'browser') {
     const row = (label, fn) => `<tr><th>${label}</th><td>${fn(A.stats)}</td><td>${fn(B.stats)}</td></tr>`;
     $('#choice-table').innerHTML = `<table class="tbl ab">${head}<tbody>
@@ -396,7 +405,7 @@ function showChoice() {
     const att = (s) => s.log.map((x) => x.kills ?? '–').join(' + ');
     const feel = (s) => Object.keys(s.flags).map((k) => `${FEEL_TEXT[k]}${s.flags[k] > 1 ? ` (${s.flags[k]}×)` : ''}`).join(', ') || '–';
     $('#choice-table').innerHTML = `<table class="tbl ab">${head}<tbody>
-      <tr><th>Sens</th><td>${num(A.sens)}</td><td>${num(B.sens)}</td></tr>
+      <tr><th>${st.kind === 'scoped' ? 'Multiplicador' : 'Sens'}</th><td>${num(A.sens)}</td><td>${num(B.sens)}</td></tr>
       <tr><th>Abates por tentativa</th><td>${att(A)}</td><td>${att(B)}</td></tr>
       <tr><th>Média</th><td>${A.avg == null ? '–' : num(A.avg, 1)}</td><td>${B.avg == null ? '–' : num(B.avg, 1)}</td></tr>
       <tr><th>Nota de controle</th><td>${A.rating == null ? '–' : `${num(A.rating, 1)}/5`}</td><td>${B.rating == null ? '–' : `${num(B.rating, 1)}/5`}</td></tr>
@@ -406,7 +415,7 @@ function showChoice() {
   }
   $$('[data-pick]').forEach((b) => b.classList.toggle('suggested', suggestion?.pick === b.dataset.pick));
   $('#choice-suggest').innerHTML = suggestion
-    ? `<p><strong>Sugestão pelos dados: ${suggestion.pick === 'tie' ? 'empate' : `Sens ${suggestion.pick}`}</strong> (confiança ${suggestion.confidence}).</p>${suggestion.notes.map((n) => `<p>${esc(n)}</p>`).join('')}`
+    ? `<p><strong>Sugestão pelos dados: ${suggestion.pick === 'tie' ? 'empate' : `${noun} ${suggestion.pick}`}</strong> (confiança ${suggestion.confidence}).</p>${suggestion.notes.map((n) => `<p>${esc(n)}</p>`).join('')}`
     : '';
   $('#btn-replays-round').hidden = st.mode !== 'browser';
   $('#btn-more').hidden = st.mode !== 'range';
@@ -433,14 +442,14 @@ $$('[data-pick]').forEach((b) => b.addEventListener('click', () => {
   const pick = b.dataset.pick;
   commitRound();
   st.finder.choose(pick, { nudge: rangeNudge(pick), guide: guideFrom(currentFit()), data: { mode: st.mode } });
-  if (st.finder.done) showResult();
+  if (st.finder.done) finish();
   else startRound();
 }));
 $$('[data-stop]').forEach((b) => b.addEventListener('click', () => {
   commitRound();
   st.finder.finishWith(st.finder.pair[b.dataset.stop].sens);
   st.stoppedByUser = true;
-  showResult();
+  finish();
 }));
 $('#btn-repeat').addEventListener('click', () => {
   st.roundTrials = null;
@@ -505,6 +514,11 @@ function chartSVG(points, fit, final, yLabel) {
     <line class="ch-final" x1="${X(final)}" y1="${T}" x2="${X(final)}" y2="${H - B}"/>
     <text class="ch-final-label" x="${Math.min(W - R - 4, X(final) + 6)}" y="${T + 12}" text-anchor="${X(final) > W - 120 ? 'end' : 'start'}">sua sens ${num(final)}</text>
   </svg>`;
+}
+
+function finish() {
+  if (st.kind === 'scoped') showScopedResult();
+  else showResult();
 }
 
 function showResult() {
@@ -578,7 +592,11 @@ function showResult() {
   }).join('');
   $('#btn-replays-all').hidden = !st.trials.length;
   $('#btn-confirm-range').hidden = st.mode === 'range';
-  saveHistory({ date: new Date().toISOString(), sens, dpi: p.dpi, mode: st.mode });
+  saveSession({
+    id: st.sessionId, date: new Date().toISOString(), dpi: p.dpi, mode: st.mode, final: sens,
+    points: st.points.map((x) => ({ sens: x.sens, value: x.value, t: x.t })),
+  });
+  renderSessionsCard();
   show('result');
 }
 
@@ -626,6 +644,7 @@ $('#btn-confirm-range').addEventListener('click', () => {
   st.mode = 'range';
   st.confirming = true;
   st.stoppedByUser = false;
+  st.sessionId = Date.now().toString(36);
   // Pontos do navegador e abates não estão na mesma escala: a curva recomeça no Campo de Tiro.
   st.points = [];
   st.clock = 0;
@@ -646,17 +665,120 @@ $('#btn-copy').addEventListener('click', async () => {
   setTimeout(() => { $('#btn-copy').textContent = 'Copiar resultado'; }, 2500);
 });
 
-function saveHistory(entry) {
-  store(HISTORY_KEY, [entry, ...(store(HISTORY_KEY) || [])].slice(0, 10));
+function loadSessions() {
+  let list = store(SESSIONS_KEY);
+  if (!Array.isArray(list)) {
+    // Migra resultados antigos (sem pontos da curva).
+    const old = store(HISTORY_KEY) || [];
+    list = old.map((x, i) => ({ id: `old${i}`, date: x.date, dpi: x.dpi, mode: x.mode, final: x.sens, points: [] }));
+  }
+  return list;
 }
+function saveSession(sess) {
+  const list = loadSessions().filter((x) => x.id !== sess.id);
+  store(SESSIONS_KEY, [sess, ...list].slice(0, 20));
+}
+const daysAgo = (d) => Math.floor((Date.now() - new Date(d).getTime()) / 86400000);
+
+/** Bloco com a sens consolidada de todas as sessões. */
+function sessionsSummary(list, dpi) {
+  const c = combineSessions(list, dpi);
+  if (!c) return '';
+  const last = daysAgo(list[0].date);
+  const reminder = list.length < 2
+    ? '<p class="note">Faça outra sessão em outro dia. A sens perfeita é a que vence em dias diferentes, não só num dia bom.</p>'
+    : !c.stable ? `<p class="note warn">Seus resultados variaram ${Math.round(c.spread * 100)}% entre as sessões. Faça mais uma em outro dia, descansado, para fechar.</p>`
+      : last >= 7 ? `<p class="note">Sua última sessão foi há ${last} dias. Refaça para confirmar que a sens continua certa.</p>` : '';
+  return `<div class="stats">
+      <div><span>Sens consolidada</span><strong>${num(V.roundSens(c.sens))}</strong></div>
+      <div><span>eDPI</span><strong>${Math.round(c.sens * dpi)}</strong></div>
+      <div><span>cm/360</span><strong>${num(V.cm360(c.sens, dpi), 1)}</strong></div>
+      <div><span>Sessões</span><strong>${c.n}</strong></div>
+    </div>
+    ${c.n >= 2 ? `<p>${c.stable ? `<span class="ok">Estável:</span> suas sessões ficaram a até ${Math.round(c.spread * 100)}% uma da outra.` : `Ainda variando entre as sessões (${Math.round(c.spread * 100)}%).`}
+    ${c.fit.ok && c.fit.confidence !== 'baixa' ? ` Faixa ótima somando todas: <strong>${num(c.fit.range[0])}</strong> a <strong>${num(c.fit.range[1])}</strong>.` : ''}</p>` : ''}
+    ${reminder}
+    <p class="muted small">Valores em ${dpi} DPI. Sessões com outro DPI são convertidas pelo eDPI. Cada dia é normalizado, então um dia ruim não puxa o resultado para baixo.</p>`;
+}
+
 function renderPast() {
-  const h = store(HISTORY_KEY) || [];
+  const list = loadSessions();
   const el = $('#past');
-  el.hidden = !h.length;
-  el.innerHTML = `<h3>Seus resultados anteriores</h3><ul>${h.map((x) =>
-    `<li>${new Date(x.date).toLocaleDateString('pt-BR')}: <strong>${num(x.sens)}</strong> @ ${x.dpi} DPI (eDPI ${Math.round(x.sens * x.dpi)}, ${x.mode === 'range' ? 'Campo de Tiro' : 'navegador'})</li>`).join('')}</ul>`;
+  el.hidden = !list.length;
+  if (!list.length) return;
+  const dpi = readNum($('#f-dpi')) || list[0].dpi;
+  const scoped = store(SCOPED_KEY);
+  el.innerHTML = `<h3>Suas sessões</h3>
+    ${sessionsSummary(list, dpi)}
+    ${scoped ? `<p>Multiplicador com mira: <strong>${num(scoped.mult)}×</strong> (${new Date(scoped.date).toLocaleDateString('pt-BR')}).</p>` : ''}
+    <ul>${list.map((x) => `<li>${new Date(x.date).toLocaleDateString('pt-BR')}: <strong>${num(x.final)}</strong> @ ${x.dpi} DPI (eDPI ${Math.round(x.final * x.dpi)}, ${x.mode === 'range' ? 'Campo de Tiro' : 'navegador'})</li>`).join('')}</ul>
+    <button class="btn link" type="button" id="btn-clear">Apagar histórico</button>
+    <p class="muted small">O histórico fica salvo só neste navegador.</p>`;
+  $('#btn-clear').addEventListener('click', (e) => {
+    if (e.target.dataset.armed) {
+      store(SESSIONS_KEY, []);
+      try { localStorage.removeItem(HISTORY_KEY); } catch { /* sem armazenamento */ }
+      renderPast();
+    } else {
+      e.target.dataset.armed = '1';
+      e.target.textContent = 'Clique de novo para apagar tudo';
+    }
+  });
 }
 renderPast();
+$('#f-dpi').addEventListener('change', renderPast);
+
+function renderSessionsCard() {
+  const list = loadSessions();
+  const el = $('#result-sessions');
+  el.hidden = list.length < 2;
+  if (list.length < 2) return;
+  el.innerHTML = `<h2>Todas as suas sessões</h2>${sessionsSummary(list, st.profile.dpi)}`;
+}
+
+// ---------------- Multiplicador com mira ----------------
+function startScoped() {
+  st.saved = { finder: st.finder, points: st.points, clock: st.clock, mode: st.mode, stoppedByUser: st.stoppedByUser };
+  st.kind = 'scoped';
+  st.mode = 'range';
+  st.points = [];
+  st.clock = 0;
+  st.stoppedByUser = false;
+  if (!st.profile.attempts) st.profile.attempts = 2;
+  st.finder = new SensFinder({ startSens: 1, dpi: 1, spread: 0.15, minSpread: 0.03, maxRounds: 6, min: 0.5, max: 1.6 });
+  startRound();
+}
+
+function showScopedResult() {
+  const f = st.finder;
+  const fit = currentFit();
+  const parts = [{ key: 'pref', label: 'Suas escolhas A/B', sens: f.result, weight: st.stoppedByUser ? 1.5 : 1 }];
+  if (fit.ok) parts.push({ key: 'curve', label: 'Pico da curva de abates', sens: fit.opt, weight: fit.edge ? 0.2 : CURVE_WEIGHT[fit.confidence] });
+  const comb = combineEstimates(parts);
+  const mult = V.roundSens(comb.sens);
+  store(SCOPED_KEY, { mult, date: new Date().toISOString() });
+  const diff = Math.round((mult - 1) * 100);
+  $('#scoped-main').innerHTML = `<div class="stats">
+      <div><span>Multiplicador com mira</span><strong>${num(mult)}×</strong></div>
+      <div><span>vs. padrão 1,000</span><strong>${diff > 0 ? '+' : ''}${diff}%</strong></div>
+    </div>
+    ${fit.ok && fit.confidence !== 'baixa' ? `<p>Faixa ótima: <strong>${num(fit.range[0])}×</strong> a <strong>${num(fit.range[1])}×</strong>.</p>` : ''}
+    <p>${Math.abs(diff) <= 3 ? 'Ficou praticamente no padrão: mantenha 1,000, como ~79% dos pros.' : diff < 0 ? 'Com mira você controla melhor um pouco mais devagar: comum em quem passa do alvo com o Operator.' : 'Com mira você controla melhor um pouco mais rápido: comum em quem chega curto nos flicks com o Operator.'}</p>
+    <p class="muted small">Referência: 1,000 iguala a sensação na borda da tela (padrão do jogo). Calculadoras da comunidade dão ~0,747 para igualar no centro da mira. O multiplicador vale para todas as armas com mira (Operator, Marshal, Outlaw); o de ADS (rifles) fica em 1,000.</p>`;
+  $('#scoped-how').innerHTML = `<div class="table-wrap"><table class="tbl"><thead><tr><th>Fonte</th><th>Multiplicador</th><th>Peso</th></tr></thead><tbody>
+    ${comb.parts.map((x) => `<tr><th>${x.label}</th><td>${num(x.sens)}×</td><td>${Math.round(x.share * 100)}%</td></tr>`).join('')}</tbody></table></div>
+    <ol class="history">${f.history.map((h) => h.pick === 'stop' ? `<li>Você parou: confortável com <strong>${num(h.result)}×</strong></li>`
+      : `<li>A ${num(h.A.sens)}× vs. B ${num(h.B.sens)}× → ${h.pick === 'tie' ? 'empate' : h.pick} → <strong>${num(h.result)}×</strong></li>`).join('')}</ol>`;
+  show('scoped');
+}
+
+function restoreMain() {
+  Object.assign(st, st.saved);
+  st.kind = 'sens';
+}
+
+$('#btn-scoped').addEventListener('click', startScoped);
+$('#scoped-back').addEventListener('click', () => { restoreMain(); show('result'); });
 
 // ---------------- Replay ----------------
 const rp = { list: [], i: 0, back: 'result', filter: 'all', blind: false };

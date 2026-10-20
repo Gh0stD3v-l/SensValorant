@@ -119,3 +119,42 @@ export function rangeVerdict(killsA, killsB, bots = 30) {
   const level = Math.abs(z) >= 1.96 ? 'real' : Math.abs(z) >= 1 ? 'provável' : 'pode ser sorte';
   return { d, z, level, pA: normCdf(z) };
 }
+
+/**
+ * Junta várias sessões (dias diferentes) numa sens consolidada.
+ * Cada sessão é normalizada (média 0, desvio 1) para tirar o efeito de "dia bom/dia ruim" e para
+ * misturar abates do Campo de Tiro com pontuação do navegador; o tempo é centrado por sessão.
+ * Valores de DPIs diferentes são convertidos pelo eDPI para o DPI atual.
+ * @param {{dpi:number, mode:string, final:number, date:string, points:{sens:number, value:number, t:number}[]}[]} sessions
+ * @param {number} dpi DPI atual
+ */
+export function combineSessions(sessions, dpi) {
+  if (!sessions.length) return null;
+  const pts = [];
+  for (const s of sessions) {
+    if (!s.points || s.points.length < 4) continue;
+    const vals = s.points.map((p) => p.value);
+    const m = mean(vals);
+    const sdv = Math.sqrt(variance(vals)) || 1;
+    const tm = mean(s.points.map((p) => p.t ?? 0));
+    for (const p of s.points) {
+      pts.push({ sens: (p.sens * s.dpi) / dpi, value: (p.value - m) / sdv, t: (p.t ?? 0) - tm, w: s.mode === 'range' ? 1 : 0.7 });
+    }
+  }
+  const fit = fitCurve(pts);
+  const finals = sessions.map((s) => (s.final * s.dpi) / dpi);
+  const geo = Math.exp(mean(finals.map((x) => Math.log(x))));
+  const spread = Math.max(...finals) / Math.min(...finals) - 1;
+  const parts = [{ key: 'finals', label: sessions.length > 1 ? `Média das ${sessions.length} sessões` : 'Resultado da sessão', sens: geo, weight: 1 }];
+  if (fit.ok) parts.push({ key: 'curve', label: 'Curva de todas as sessões', sens: fit.opt, weight: fit.edge ? 0.2 : CURVE_WEIGHT[fit.confidence] });
+  const consensus = combineEstimates(parts);
+  return {
+    n: sessions.length,
+    fit,
+    finals,
+    spread,
+    stable: sessions.length >= 2 && spread <= 0.1,
+    sens: consensus.sens,
+    consensus,
+  };
+}

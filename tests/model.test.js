@@ -77,3 +77,20 @@ test('veredito do Campo de Tiro', () => {
   assert.equal(rangeVerdict([20, 21], [19, 20]).level, 'pode ser sorte');
   assert.equal(rangeVerdict([24, 25, 24], [16, 17, 15]).level, 'real');
 });
+
+test('sessões de dias diferentes viram uma sens consolidada', async () => {
+  const { combineSessions } = await import('../js/model.js');
+  const { SensFinder } = await import('../js/finder.js');
+  // Mesmo jogador (ótimo em eDPI 280) em 3 dias: um dia ruim, outro com 1600 DPI e outro no navegador.
+  const day = (dpi, offset, mode, seed) => {
+    const pts = synth(280 / dpi, [200, 240, 280, 320, 370].map((e) => e / dpi), { seed, reps: 2 }).map((p) => ({ ...p, value: p.value * 20 + offset }));
+    return { dpi, mode, final: 285 / dpi, date: '2026-10-01', points: pts };
+  };
+  const c = combineSessions([day(800, 0, 'range', 1), day(800, -6, 'range', 2), day(1600, 50, 'browser', 3)], 800);
+  assert.ok(c.fit.ok);
+  assert.ok(Math.abs(c.sens * 800 - 280) / 280 < 0.05, `eDPI ${c.sens * 800}`);
+  assert.ok(c.stable);
+  // Multiplicador com mira: a mesma busca com limites próprios.
+  const f = new SensFinder({ startSens: 1, dpi: 1, spread: 0.15, min: 0.5, max: 1.5 });
+  assert.ok(f.pair.A.sens >= 0.85 - 1e-9 && Math.max(f.pair.A.sens, f.pair.B.sens) <= 1.15 + 1e-9);
+});

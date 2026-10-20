@@ -41,6 +41,11 @@ busca cega, diagnóstico e replay.
   por bootstrap), equilíbrio do 1º movimento (erro médio do flick = −3%), combinação ponderada com
   as escolhas A/B e veredito do Campo de Tiro (abates binomiais de 30 bots: real / provável / sorte).
   A curva também guia a busca (puxa o próximo centro 30–50% na direção do pico quando confiável).
+  `combineSessions` junta sessões de dias diferentes (salvas no navegador): normaliza cada dia
+  (média 0, desvio 1, para um dia ruim não puxar o resultado), converte DPIs pelo eDPI, ajusta uma
+  curva única e combina com a média das sessões. "Estável" = sessões a até 10% uma da outra.
+- **Multiplicador com mira**: mesma busca do `SensFinder` com `min/max` próprios (0,5–1,6×), no
+  Campo de Tiro com Marshal/Operator (Teste de tiro, Médio), começando em 1,000 ± 15%.
 - `js/scene.js`: câmera do Valorant (FOV vertical fixo equivalente a 103° em 16:9) e desenho.
 - `js/drill.js`: teste no navegador (Pointer Lock + `unadjustedMovement`, `pointerrawupdate`,
   tela cheia, correção da calibração, FPS) e `CountMeter` da calibração.

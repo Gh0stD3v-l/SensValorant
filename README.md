@@ -19,6 +19,10 @@ Encontre a sensibilidade ideal **exclusivamente para o Valorant**.
 - **Seu movimento**: mede quantos centímetros o mouse anda nos flicks e se você levanta o mouse, e diz
   se você mira de braço, misto ou pulso (pode ser diferente do que você marcou). O perfil também pergunta
   a **pegada** (palm, claw, fingertip).
+- **Sessões em dias diferentes**: cada busca fica salva no navegador. O site junta todas numa **sens
+  consolidada**, normalizando cada dia para um dia ruim não puxar o resultado, e diz se ela já está estável.
+- **Multiplicador com mira**: busca A/B no Campo de Tiro com Marshal ou Operator para achar o seu
+  multiplicador (padrão 1,000).
 - **Replay estilo Aim Lab** de cada alvo, em primeira pessoa, com gráfico do caminho da mira.
 - **Calibração do mouse** com um cartão ou uma folha A4: corrige a escala do Windows e detecta aceleração.
 - **Calculadora** (eDPI, cm/360, DPI, CS2/Apex/OW2, zoom das miras) e **Guia 2026** com dados dos pros.

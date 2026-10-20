@@ -79,6 +79,10 @@ Polling rate: não há estatística confiável. As fontes dizem que a maioria do
   vertical, mas não há medição publicada. → No teste do navegador, as cabeças ficam na mesma altura
   e o app mede quanto você precisa corrigir na vertical.
 
+- **Variação entre dias**: o efeito de aprendizado e a variação entre tentativas (KovaaK's, 2024)
+  mostram que uma sessão sozinha tem ruído. → O app guarda as sessões e consolida a sens de vários
+  dias, normalizando cada dia.
+
 ## Teste no navegador × jogo
 
 Por que a mesma sens pode parecer diferente no site e no Valorant:

@@ -14,10 +14,13 @@ export const SHRINK_TIE = 0.5;
 
 export class SensFinder {
   /**
-   * @param {{startSens:number, dpi:number, spread?:number, minSpread?:number, maxRounds?:number, rng?:() => number}} o
+   * @param {{startSens:number, dpi:number, spread?:number, minSpread?:number, maxRounds?:number, min?:number, max?:number, rng?:() => number}} o
+   *   min/max: limites do valor buscado (padrão: eDPI de 100 a 700). Usado também para o multiplicador com mira.
    */
-  constructor({ startSens, dpi, spread = 0.4, minSpread = 0.03, maxRounds = 12, rng = Math.random }) {
+  constructor({ startSens, dpi, spread = 0.4, minSpread = 0.03, maxRounds = 12, min, max, rng = Math.random }) {
     this.dpi = dpi;
+    this.min = min ?? EDPI_MIN / dpi;
+    this.max = max ?? EDPI_MAX / dpi;
     this.center = this._limit(startSens);
     this.spread = spread;
     this.minSpread = minSpread;
@@ -32,7 +35,7 @@ export class SensFinder {
   }
 
   _limit(s) {
-    return roundSens(clamp(s, EDPI_MIN / this.dpi, EDPI_MAX / this.dpi));
+    return roundSens(clamp(s, this.min, this.max));
   }
 
   _makePair() {

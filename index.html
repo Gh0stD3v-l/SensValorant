@@ -157,8 +157,13 @@
     <div id="step-range" class="step card" hidden>
       <div class="test-head"><strong id="range-title">Rodada</strong><span id="range-sub" class="muted"></span></div>
       <p id="range-break" class="note warn" hidden>Pausa de 1 minuto antes desta rodada: depois de 3 rodadas o cansaço já começa a pesar nos abates.</p>
-      <div class="big-sens"><span class="muted">Coloque no Valorant</span><span id="range-sens">0,000</span></div>
-      <ol class="routine">
+      <div class="big-sens"><span class="muted" id="range-what">Coloque no Valorant</span><span id="range-sens">0,000</span></div>
+      <ol class="routine" id="routine-scoped" hidden>
+        <li>Deixe a sensibilidade na que você achou. Mude só o <strong>multiplicador com mira</strong>.</li>
+        <li><strong>Campo de Tiro</strong> → <strong>Teste de tiro</strong> → <strong>Médio</strong>, com <strong>Marshal</strong> (ou Operator), sempre atirando com a mira.</li>
+        <li>Anote os abates, dê a nota de controle e marque se passou do alvo ou chegou curto com a mira.</li>
+      </ol>
+      <ol class="routine" id="routine-sens">
         <li><strong>Campo de Tiro</strong> → <strong>Teste de tiro</strong> → <strong>Difícil</strong>, com a arma de sempre.</li>
         <li>Faça uma tentativa e anote os abates (de 30 bots).</li>
         <li>Dê uma nota de controle e marque como a mira se comportou.</li>
@@ -217,6 +222,7 @@
       <div id="result-how" class="card"></div>
       <div id="result-diag" class="card" hidden></div>
       <div id="result-move" class="card" hidden></div>
+      <div id="result-sessions" class="card" hidden></div>
       <div id="result-extra" class="result-grid"></div>
       <div class="card">
         <h3>Como a busca chegou aqui</h3>
@@ -226,9 +232,22 @@
           <button class="btn ghost" type="button" id="btn-copy">Copiar resultado</button>
           <button class="btn ghost" type="button" id="btn-replays-all">Ver replays</button>
           <button class="btn ghost" type="button" id="btn-recheck">Re-checar (±10%)</button>
+          <button class="btn ghost" type="button" id="btn-scoped">Ajustar multiplicador com mira</button>
           <button class="btn primary" type="button" id="btn-confirm-range">Confirmar no Campo de Tiro</button>
         </div>
         <p class="muted small">Depois de escolher, mantenha a sens por 1 a 2 semanas antes de mudar. Trocar toda hora atrapalha mais a memória muscular do que uma sens "imperfeita".</p>
+      </div>
+    </div>
+
+    <div id="step-scoped" class="step" hidden>
+      <div class="card">
+        <h2>Seu multiplicador com mira</h2>
+        <div id="scoped-main"></div>
+      </div>
+      <div class="card">
+        <h3>Como calculamos</h3>
+        <div id="scoped-how"></div>
+        <div class="actions"><button class="btn primary" type="button" id="scoped-back">Voltar para a sens</button></div>
       </div>
     </div>
 
