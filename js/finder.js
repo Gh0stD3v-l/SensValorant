@@ -35,7 +35,18 @@ export class SensFinder {
   }
 
   _limit(s) {
-    return roundSens(clamp(s, this.min, this.max));
+    // Limites da sensação: nunca abaixo de uma sens que você achou lenta nem acima de uma que achou rápida.
+    const lo = this.lo != null ? Math.max(this.min, this.lo * 1.01) : this.min;
+    const hi = this.hi != null ? Math.min(this.max, this.hi * 0.99) : this.max;
+    return roundSens(lo <= hi ? clamp(s, lo, hi) : clamp(s, this.min, this.max));
+  }
+
+  /** Define os limites vindos da sensação (lenta em lo, rápida em hi). */
+  setBounds(lo, hi) {
+    this.lo = lo;
+    this.hi = hi;
+    this.center = this._limit(this.center);
+    if (!this.done) this._makePair();
   }
 
   _makePair() {
@@ -61,11 +72,11 @@ export class SensFinder {
 
   /**
    * @param {'A'|'B'|'tie'} pick
-   * @param {{nudge?:number, data?:object, guide?:{sens:number, weight:number}|null}} [o]
+   * @param {{nudge?:number, data?:object, guide?:{sens:number, weight:number}|null, target?:number|null}} [o]
    *   nudge: ajuste fino (ex.: -0,03 se passou do alvo); guide: estimativa do modelo de desempenho,
    *   que puxa o próximo centro na direção dela (weight 0–1)
    */
-  choose(pick, { nudge = 0, data = null, guide = null } = {}) {
+  choose(pick, { nudge = 0, data = null, guide = null, target = null } = {}) {
     if (this.done) throw new Error('Busca já terminou');
     const before = this.center;
     const spreadBefore = this.spread;
@@ -75,7 +86,8 @@ export class SensFinder {
       this.spread *= kind === this.lastKind ? SHRINK_SAME_SIDE : SHRINK;
       this.lastKind = kind;
     } else {
-      this.center = this._limit(((this.pair.A.sens + this.pair.B.sens) / 2) * (1 + nudge));
+      // target: ponto entre as duas onde a sensação vira de lenta para rápida.
+      this.center = this._limit((target ?? (this.pair.A.sens + this.pair.B.sens) / 2) * (1 + nudge));
       this.spread *= SHRINK_TIE;
       this.lastKind = null;
     }
