@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sens Finder Valorant</title>
+  <meta name="description" content="Encontre a sensibilidade ideal para o Valorant com testes cegos A/B, teste de mira com a câmera do jogo e dados de pros de 2026.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="mark" aria-hidden="true"></span>Sens Finder <small>Valorant</small></div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" class="tab active" data-tab="finder" aria-selected="true">Encontrar sens</button>
+      <button role="tab" class="tab" data-tab="calc" aria-selected="false">Calculadora</button>
+      <button role="tab" class="tab" data-tab="guide" aria-selected="false">Guia 2026</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- ============ ENCONTRAR SENS ============ -->
+    <section id="tab-finder" class="tab-panel">
+
+      <div id="step-profile" class="step card">
+        <h1>Encontre a sua sens ideal</h1>
+        <p class="lead">Responda o perfil e faça rodadas de teste A/B cegas. A cada rodada o intervalo se estreita até chegar na sens que funciona para você.</p>
+        <form id="profile-form" class="grid-form">
+          <label>DPI do mouse
+            <input id="f-dpi" type="number" min="100" max="32000" step="50" value="800" list="dpi-list" required>
+            <datalist id="dpi-list"><option value="400"><option value="800"><option value="1600"><option value="3200"></datalist>
+          </label>
+          <label>Sens atual no Valorant <span class="opt">(opcional)</span>
+            <input id="f-sens" type="number" min="0.01" max="10" step="0.001" placeholder="ex.: 0,35">
+          </label>
+          <label>Ou: veio de outro jogo? <span class="opt">(opcional)</span>
+            <select id="f-game"><option value="">Não</option></select>
+          </label>
+          <label>Sens nesse jogo
+            <input id="f-game-sens" type="number" min="0.001" max="100" step="0.001" placeholder="ex.: 1,1" disabled>
+          </label>
+          <fieldset class="full">
+            <legend>Como você mira?</legend>
+            <div class="chips">
+              <label><input type="radio" name="style" value="braco"> Braço</label>
+              <label><input type="radio" name="style" value="misto" checked> Misto</label>
+              <label><input type="radio" name="style" value="pulso"> Pulso</label>
+              <label><input type="radio" name="style" value="dedos"> Dedos</label>
+            </div>
+          </fieldset>
+          <label>Largura do mousepad
+            <select id="f-pad">
+              <option value="30">Pequeno (~30 cm)</option>
+              <option value="45" selected>Médio (~45 cm)</option>
+              <option value="90">Grande / XL (~90 cm)</option>
+              <option value="0">Não sei</option>
+            </select>
+          </label>
+          <label>Função principal
+            <select id="f-role">
+              <option value="flex">Flex / várias</option>
+              <option value="duelista">Duelista</option>
+              <option value="iniciador">Iniciador</option>
+              <option value="controlador">Controlador</option>
+              <option value="sentinela">Sentinela</option>
+            </select>
+          </label>
+          <fieldset class="full">
+            <legend>Onde testar?</legend>
+            <div class="chips">
+              <label><input type="radio" name="mode" value="browser" checked> Aqui no navegador <span class="opt">(teste cego, mede tudo)</span></label>
+              <label><input type="radio" name="mode" value="game"> No Valorant <span class="opt">(Range)</span></label>
+            </div>
+          </fieldset>
+          <label>Rodadas
+            <select id="f-rounds">
+              <option value="5">5 (rápido, ~6 min)</option>
+              <option value="7" selected>7 (padrão, ~9 min)</option>
+            </select>
+          </label>
+          <div class="full actions"><button class="btn primary" type="submit">Calcular ponto de partida</button></div>
+        </form>
+        <div id="past" class="past" hidden></div>
+      </div>
+
+      <div id="step-start" class="step card" hidden>
+        <h2>Ponto de partida</h2>
+        <div id="start-summary"></div>
+        <label class="check" id="warmup-wrap"><input id="f-warmup" type="checkbox" checked> Fazer aquecimento rápido antes (não conta na pontuação)</label>
+        <div class="actions">
+          <button class="btn ghost" data-go="profile">Voltar</button>
+          <button class="btn primary" id="btn-begin">Começar a busca</button>
+        </div>
+      </div>
+
+      <div id="step-test" class="step" hidden>
+        <div class="test-head">
+          <div><strong id="test-title">Rodada</strong> <span id="test-sub" class="muted"></span></div>
+          <span id="raw-badge" class="badge" hidden></span>
+        </div>
+        <div class="stage"><canvas id="drill-canvas" aria-label="Teste de mira"></canvas></div>
+        <p class="muted small">A câmera usa exatamente a matemática do Valorant (0,07° por contagem × sens, FOV 103°). Use o DPI que você informou. Funciona melhor no Chrome ou no Edge, que dão acesso à entrada crua do mouse.</p>
+      </div>
+
+      <div id="step-game" class="step card" hidden>
+        <div class="test-head"><strong id="game-title">Rodada</strong></div>
+        <div class="big-sens"><span class="muted">Coloque no Valorant</span><span id="game-sens">0,000</span></div>
+        <ol class="routine">
+          <li>Vá ao <strong>Campo de Tiro</strong> → <strong>Teste de tiro</strong> (dificuldade Média), com a mesma arma de sempre (Vandal ou Phantom).</li>
+          <li>Faça <strong>2 tentativas</strong> e anote o total de abates.</li>
+          <li>Repare no controle: você passa do alvo? A mira chega atrasada?</li>
+        </ol>
+        <label>Abates nas 2 tentativas <span class="opt">(opcional)</span><input id="game-kills" type="number" min="0" max="200"></label>
+        <div class="actions"><button class="btn primary" id="btn-game-done">Testei</button></div>
+      </div>
+
+      <div id="step-choice" class="step card" hidden>
+        <h2 id="choice-title">Qual foi melhor?</h2>
+        <div id="choice-table"></div>
+        <div id="choice-suggest" class="suggest"></div>
+        <p class="muted">Os números ajudam, mas o que manda é o controle. Escolha a que pareceu mais <strong>controlável</strong>, não a mais confortável por costume.</p>
+        <div class="actions choice">
+          <button class="btn primary" data-pick="A">A foi melhor</button>
+          <button class="btn ghost" data-pick="tie">Iguais</button>
+          <button class="btn primary" data-pick="B">B foi melhor</button>
+        </div>
+      </div>
+
+      <div id="step-result" class="step card" hidden>
+        <h2>Sua sens</h2>
+        <div id="result-main"></div>
+        <div id="result-extra" class="result-grid"></div>
+        <h3>Como a busca chegou aqui</h3>
+        <ol id="result-history" class="history"></ol>
+        <div class="actions">
+          <button class="btn ghost" id="btn-restart">Recomeçar</button>
+          <button class="btn ghost" id="btn-copy">Copiar resultado</button>
+          <button class="btn primary" id="btn-refine">Refinar (+3 rodadas)</button>
+        </div>
+        <p class="muted small">Depois de escolher, mantenha a sens por 1 a 2 semanas antes de mudar. Trocar toda hora atrapalha mais a memória muscular do que uma sens "imperfeita".</p>
+      </div>
+    </section>
+
+    <!-- ============ CALCULADORA ============ -->
+    <section id="tab-calc" class="tab-panel" hidden>
+      <div class="cards">
+        <div class="card">
+          <h2>eDPI e cm/360</h2>
+          <div class="grid-form">
+            <label>DPI<input id="c1-dpi" type="number" value="800" min="100"></label>
+            <label>Sens<input id="c1-sens" type="number" value="0.35" step="0.001" min="0.001"></label>
+          </div>
+          <div id="c1-out" class="out"></div>
+        </div>
+        <div class="card">
+          <h2>Trocar de DPI</h2>
+          <div class="grid-form">
+            <label>Sens atual<input id="c2-sens" type="number" value="0.35" step="0.001"></label>
+            <label>DPI atual<input id="c2-from" type="number" value="800"></label>
+            <label>DPI novo<input id="c2-to" type="number" value="1600"></label>
+          </div>
+          <div id="c2-out" class="out"></div>
+        </div>
+        <div class="card">
+          <h2>De outro jogo para o Valorant</h2>
+          <div class="grid-form">
+            <label>Jogo<select id="c3-game"></select></label>
+            <label>Sens no jogo<input id="c3-sens" type="number" value="1.1" step="0.001"></label>
+            <label>DPI lá<input id="c3-dpi-from" type="number" value="800"></label>
+            <label>DPI no Valorant<input id="c3-dpi-to" type="number" value="800"></label>
+          </div>
+          <div id="c3-out" class="out"></div>
+        </div>
+        <div class="card">
+          <h2>A partir do cm/360</h2>
+          <div class="grid-form">
+            <label>cm/360 desejado<input id="c4-cm" type="number" value="45" step="0.1"></label>
+            <label>DPI<input id="c4-dpi" type="number" value="800"></label>
+          </div>
+          <div id="c4-out" class="out"></div>
+          <p class="muted small">Use isto para trazer a sens de qualquer jogo: meça o cm/360 lá (gire 360° e meça quanto o mouse andou).</p>
+        </div>
+        <div class="card wide">
+          <h2>Zoom das miras</h2>
+          <p class="muted">O multiplicador de sens com mira 1,00 (padrão, usado por ~79% dos pros) já compensa o zoom. Mexa só se a mira passar do alvo (baixe para 0,85–0,90) ou chegar curta (suba para 1,10–1,15).</p>
+          <table class="tbl" id="zoom-table"><thead><tr><th>Zoom</th><th>Armas</th></tr></thead><tbody></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ GUIA ============ -->
+    <section id="tab-guide" class="tab-panel" hidden>
+      <article class="card prose">
+        <h1>Sensibilidade no Valorant em 2026</h1>
+        <h2>O que os pros usam</h2>
+        <ul>
+          <li><strong>eDPI médio ~267, mediana ~240</strong> (ProSettings, 701 pros, out/2026). A ValDB (set/2026) mostra média de 247 e mediana de 224.</li>
+          <li>A metade do meio dos pros fica entre <strong>~185 e ~295 de eDPI</strong>, ou seja, entre ~44 e ~70 cm por giro de 360°.</li>
+          <li><strong>~50% usam 800 DPI</strong> e ~40% usam 400. Quase ninguém passa de 1600.</li>
+          <li><strong>79% usam multiplicador de sens com mira 1,00.</strong></li>
+          <li>A maioria ainda joga com <strong>polling rate de 1000 Hz</strong>. Mouses de 4000–8000 Hz estão crescendo, mas não são obrigatórios.</li>
+        </ul>
+        <h2>O que mudou no jogo</h2>
+        <ul>
+          <li><strong>Buffer de entrada bruta (Raw Input Buffer):</strong> desde o patch 11.06 (set/2025), a opção foi removida e fica sempre ligada no PC. Guias antigos que mandam "ligar" essa opção estão desatualizados.</li>
+          <li>Existem dois multiplicadores separados em Configurações → Geral → Mouse: <strong>ADS</strong> (rifles/SMGs mirando) e <strong>com mira (scoped)</strong> (Operator, Marshal, Outlaw). O padrão 1,0 iguala a sensação na borda da tela, não exatamente no centro.</li>
+        </ul>
+        <h2>Fatos técnicos</h2>
+        <ul>
+          <li>Cada contagem do mouse gira <strong>0,07° × sens</strong>. Por isso <code>cm/360 = 13062,86 ÷ eDPI</code>.</li>
+          <li>O FOV é fixo (103° em 16:9). Resolução e tela esticada <strong>não mudam</strong> a sens nem o tamanho dos hitboxes.</li>
+          <li>O jogo lê a entrada crua do mouse: a velocidade do ponteiro do Windows não afeta a mira na partida.</li>
+          <li>Com o mesmo eDPI, DPI mais alto (800–1600) dá um movimento um pouco mais suave do que 400.</li>
+        </ul>
+        <h2>Por que este finder funciona</h2>
+        <ul>
+          <li>Pesquisas sobre sensibilidade (estudo da NVIDIA, 2022) mostram que não existe um número ideal único: existe uma <strong>faixa ótima por pessoa</strong>, e os pros variam até 8× dentro do mesmo jogo. Por isso o finder procura a <em>sua</em> faixa em vez de copiar um pro.</li>
+          <li>O teste no navegador mede <strong>throughput (Lei de Fitts)</strong>, precisão e overshoot, e esconde qual sens é a mais alta para evitar viés.</li>
+          <li>O ponto de partida mistura o seu hábito atual com o seu perfil (estilo de mira, mousepad, função). Isso economiza rodadas.</li>
+        </ul>
+        <p class="muted small">Fontes: prosettings.net/guides/valorant-options · valdb.gg/pro-settings · turbosmurfs.gg/article/valorant-settings · setup.gg/game/valorant/raw-input-buffer · arxiv.org/abs/2203.12050 (Boudaoud, Spjut e Kim, NVIDIA). Este projeto não é afiliado à Riot Games.</p>
+      </article>
+    </section>
+  </main>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

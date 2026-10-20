@@ -5,6 +5,27 @@ Sempre que uma conversa começar aqui, assuma esse contexto: o usuário quer aju
 encontrar, converter, ajustar ou entender sensibilidade, DPI, mira e configurações
 relacionadas ao Valorant.
 
+## Proposta do projeto
+
+Construir o **melhor sens finder possível, exclusivo para Valorant**. Ele é um site estático
+(HTML + JS em módulos ES, sem build e sem dependências):
+
+- `js/valorant.js`: constantes do jogo, fórmulas, distribuição de eDPI dos pros (log-normal,
+  mediana 235, σ 0,34), ponto de partida pelo perfil e checagem do giro de 180°.
+- `js/finder.js`: busca A/B **cega** estilo PSA (intervalo ±50% que cai pela metade a cada rodada,
+  com 5 ou 7 rodadas e opção de refinar mais 3).
+- `js/scoring.js`: pontuação = throughput de Fitts × precisão, mais overshoot e tempos de
+  flick e de micro-ajuste.
+- `js/drill.js`: teste de mira em canvas com a câmera do Valorant (Pointer Lock +
+  `unadjustedMovement`, 0,07° × sens por contagem, FOV vertical fixo equivalente a 103° em 16:9).
+- `js/app.js` + `index.html` + `css/style.css`: interface com as abas Encontrar sens,
+  Calculadora e Guia 2026.
+- `docs/pesquisa-2026.md`: pesquisa completa com as fontes. **Atualize-a** quando houver dados novos.
+- Testes: `npm test` (`node --test`). Servidor local: `npm start`.
+
+Ao mexer no código: mantenha a matemática pura (sem DOM) em `valorant.js`, `finder.js` e
+`scoring.js`, com testes. Escreva a interface em português do Brasil. Nada de marca ou logo da Riot.
+
 ## Como agir
 
 - Responda em **português do Brasil**, direto e sem enrolação.
@@ -35,14 +56,22 @@ Yaw do Valorant: **0,07° por contagem** do mouse.
 | 160 | 81,6 | muito baixa |
 | 200 | 65,3 | baixa |
 | 240 | 54,4 | média-baixa |
-| 280 | 46,7 | média (perto da média dos pros) |
+| 280 | 46,7 | média (um pouco acima da média dos pros, 267) |
 | 320 | 40,8 | média-alta |
 | 400 | 32,7 | alta |
 | 500 | 26,1 | muito alta |
 
-Referência: a grande maioria dos profissionais de Valorant fica entre **~200 e ~400 de eDPI**,
-com média por volta de **~280**. Sens alta demais (eDPI > 450–500) costuma piorar a precisão
-nos micro-ajustes, que são o que mais importa num jogo de headshot e de mira parada.
+### Dados de pros (2026)
+
+- ProSettings (701 pros, out/2026): **eDPI médio 267, mediano 240**. ~50% usam 800 DPI e ~40% usam
+  400 DPI; quase ninguém passa de 1600. **79% usam scoped 1,00.**
+- ValDB (set/2026): média 247, mediana 224. Metade do meio dos pros: **~185–295 de eDPI**.
+- Por função não há dado confiável (só uma amostra de 9 pros), então trate como tendência.
+- A maioria ainda usa 1000 Hz de polling rate.
+
+Sens alta demais (eDPI > 450–500) costuma piorar a precisão nos micro-ajustes, que são o que mais
+importa num jogo de headshot e de mira parada. A ciência (NVIDIA, 2022) mostra que existe uma
+**faixa ótima individual**, não um número universal. Os pros variam até 8× entre si.
 
 ## Conversão de outros jogos para o Valorant
 
@@ -69,11 +98,13 @@ peça o cm/360 que o usuário usa lá, em vez de inventar um fator.
 - O jogo usa **raw input**: velocidade do ponteiro do Windows e "Aumentar precisão do ponteiro"
   não afetam a mira dentro da partida (mas recomenda-se 6/11 e precisão do ponteiro desligada,
   para o menu e o desktop ficarem consistentes).
-- **Raw Input Buffer**: opção que reduz latência/uso de CPU com polling rate alto. Vale ligar,
-  principalmente com 2000 Hz ou mais.
-- **Multiplicador de sens com mira (scoped)**: o padrão **1,0** já escala pelo zoom, então a
-  sensação fica consistente com o hipfire. A maioria dos pros usa 1,0; mexa só se o usuário
-  sentir que o scope (Operator/Marshal) está rápido ou lento demais.
+- **Raw Input Buffer**: **removido das configurações no patch 11.06 (set/2025)**. Agora fica
+  sempre ligado no PC. Se um guia mandar "ligar", ele está desatualizado.
+- **Multiplicadores ADS e scoped** (separados, em Geral → Mouse): o padrão **1,0** já escala pelo
+  zoom e iguala a sensação na borda da tela. 79% dos pros usam 1,0. Se a mira passar do alvo,
+  baixe para 0,85–0,90; se chegar curta, suba para 1,10–1,15.
+- **Zooms**: 1,15× (Stinger, Spectre, Ares, Odin), 1,25× (Bulldog, Phantom, Vandal),
+  1,5× (Guardian, Headhunter), 2,5× / 5× (Operator), 3,5× (Marshal, Outlaw).
 - **DPI**: valores comuns são 400, 800 e 1600. DPI mais alto com sens mais baixa (mesmo eDPI)
   dá movimentos mais suaves e é tecnicamente um pouco melhor; o que importa para a sensação é o eDPI.
 - **Polling rate**: 1000 Hz é o padrão seguro. 2000–8000 Hz ajuda pouco e pesa na CPU;
@@ -82,7 +113,7 @@ peça o cm/360 que o usuário usa lá, em vez de inventar um fator.
 
 ## Método para achar a sens ideal
 
-1. Parta de uma referência: o eDPI que a pessoa já usa ou **~280 de eDPI** se ela não souber.
+1. Parta de uma referência: o eDPI que a pessoa já usa ou **~240 de eDPI** (mediana dos pros) se ela não souber.
 2. **Método do 180°**: a pessoa deve conseguir virar 180° com um movimento confortável de braço/pulso,
    sem bater na borda do mousepad.
 3. **Teste de micro-ajuste** no Range: bots parados em distância média e longa. Se a mira passa
