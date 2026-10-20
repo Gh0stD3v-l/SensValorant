@@ -147,15 +147,26 @@
 
     <div id="step-range" class="step card" hidden>
       <div class="test-head"><strong id="range-title">Rodada</strong><span id="range-sub" class="muted"></span></div>
+      <p id="range-break" class="note warn" hidden>Pausa de 1 minuto antes desta rodada: depois de 3 rodadas o cansaço já começa a pesar nos abates.</p>
       <div class="big-sens"><span class="muted">Coloque no Valorant</span><span id="range-sens">0,000</span></div>
       <ol class="routine">
         <li><strong>Campo de Tiro</strong> → <strong>Teste de tiro</strong> → <strong>Difícil</strong>, com a arma de sempre.</li>
-        <li>Faça uma tentativa e anote os abates.</li>
-        <li>Marque como a mira se comportou.</li>
+        <li>Faça uma tentativa e anote os abates (de 30 bots).</li>
+        <li>Dê uma nota de controle e marque como a mira se comportou.</li>
       </ol>
       <div class="grid-form">
         <label for="range-kills">Abates nesta tentativa<input id="range-kills" type="number" min="0" max="60" inputmode="numeric"></label>
       </div>
+      <fieldset>
+        <legend>Nota de controle da mira</legend>
+        <div class="chips rating">
+          <label><input type="radio" name="rating" value="1"> 1 sem controle</label>
+          <label><input type="radio" name="rating" value="2"> 2</label>
+          <label><input type="radio" name="rating" value="3"> 3</label>
+          <label><input type="radio" name="rating" value="4"> 4</label>
+          <label><input type="radio" name="rating" value="5"> 5 total controle</label>
+        </div>
+      </fieldset>
       <fieldset>
         <legend>Como foi a mira?</legend>
         <div class="chips">
@@ -180,6 +191,7 @@
         <button class="btn primary" type="button" data-pick="B">B foi melhor</button>
       </div>
       <div class="actions secondary">
+        <button class="btn link" type="button" id="btn-more">Mais 1 tentativa de cada</button>
         <button class="btn link" type="button" id="btn-repeat">Repetir esta rodada</button>
         <button class="btn link" type="button" id="btn-replays-round">Ver replays</button>
         <button class="btn link" type="button" data-stop="A">Estou confortável com A: parar</button>
@@ -193,6 +205,7 @@
         <h2>Sua sens</h2>
         <div id="result-main"></div>
       </div>
+      <div id="result-how" class="card"></div>
       <div id="result-diag" class="card" hidden></div>
       <div id="result-extra" class="result-grid"></div>
       <div class="card">

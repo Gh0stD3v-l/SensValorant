@@ -9,7 +9,8 @@ relacionadas ao Valorant.
 
 Construir o **melhor sens finder possível, exclusivo para Valorant**. Ele é um site estático
 (HTML + JS em módulos ES, sem build e sem dependências). O usuário prefere testar no **Campo de Tiro**
-(Teste de tiro, Difícil); o teste no navegador serve para busca cega, diagnóstico e replay.
+(Teste de tiro, Difícil, 30 bots; nota de controle 1–5 por tentativa); o teste no navegador serve para
+busca cega, diagnóstico e replay.
 
 - `js/valorant.js`: constantes do jogo, fórmulas, distribuição de eDPI dos pros (log-normal,
   mediana 235, σ 0,34), ponto de partida pelo perfil, giro de 180° e calibração do mouse.
@@ -18,12 +19,21 @@ Construir o **melhor sens finder possível, exclusivo para Valorant**. Ele é um
   quando o intervalo fica < ±3%, quando chega a 12 rodadas ou quando o jogador diz que está
   confortável. Também tem repetir rodada, re-checar ±10% e nudge pela sensação (±3%).
 - `js/targets.js`: alvos em forma de agente (cabeça + corpo; só a cabeça conta). Tipos: flick,
-  virada, micro, strafe (ADAD) e peek. Blocos de 8 alvos.
+  virada, micro, strafe (ADAD) e peek. Blocos de 8 alvos. Fora o micro, as cabeças ficam na mesma
+  altura (±1,5°), como num chão plano.
 - `js/scoring.js`: pontuação = throughput de Fitts × precisão na cabeça. Confere se os blocos
   A-B-B-A concordam.
 - `js/analysis.js`: diagnóstico dos erros a partir do caminho da mira (passar do alvo, chegar
-  curto, atirar em movimento, mirar baixo/alto, tiro no corpo, reação, micro lento, atrás/à frente
-  no strafe, peek perdido, inconsistência) e tendência de sens.
+  curto, flick torto, lado fraco, mira fora da altura da cabeça, atirar em movimento, demora para
+  atirar na cabeça, tiro no corpo, reação, mira tremendo e micro lento, atrás/à frente no strafe,
+  peek perdido, inconsistência), cada um com confiança (Wilson/erro padrão) e comparação com a
+  sessão toda; `sensTrends` (o que muda com a sens) e `sessionTrend` (aquecimento/cansaço).
+- `js/stats.js`: estatística (mínimos quadrados, Wilson, z, bootstrap, gerador com semente).
+- `js/model.js`: **modelo de precisão**. Curva desempenho × sens (quadrática em ln(sens) com termo de
+  tempo para descontar aprendizado/cansaço; pico = melhor sens; faixa ótima = até 3% do pico; IC 80%
+  por bootstrap), equilíbrio do 1º movimento (erro médio do flick = −3%), combinação ponderada com
+  as escolhas A/B e veredito do Campo de Tiro (abates binomiais de 30 bots: real / provável / sorte).
+  A curva também guia a busca (puxa o próximo centro 30–50% na direção do pico quando confiável).
 - `js/scene.js`: câmera do Valorant (FOV vertical fixo equivalente a 103° em 16:9) e desenho.
 - `js/drill.js`: teste no navegador (Pointer Lock + `unadjustedMovement`, `pointerrawupdate`,
   tela cheia, correção da calibração, FPS) e `CountMeter` da calibração.
@@ -38,7 +48,7 @@ cheia), escala do Windows ou aceleração no navegador (use a calibração), nav
 (use Chrome ou Edge) e FPS baixo. Mesmo assim, a palavra final é do Campo de Tiro.
 
 Ao mexer no código: mantenha a matemática pura (sem DOM) em `valorant.js`, `finder.js`,
-`targets.js`, `scoring.js` e `analysis.js`, com testes. Escreva a interface em português do Brasil.
+`targets.js`, `scoring.js`, `analysis.js`, `stats.js` e `model.js`, com testes. Escreva a interface em português do Brasil.
 Nada de marca ou logo da Riot.
 
 ## Como agir

@@ -245,6 +245,24 @@ legend { font-weight: 600; font-size: .92rem; margin-bottom: 8px; padding: 0; }
 .prose h2 { margin-top: 20px; }
 .prose li { margin-bottom: 6px; }
 
+.conf { font: 600 .72rem var(--font-body); text-transform: uppercase; letter-spacing: .06em; padding: 1px 6px; border-radius: 3px; border: 1px solid currentColor; margin-left: 4px; vertical-align: 1px; white-space: nowrap; }
+.conf-alta { color: var(--bad); }
+.conf-media { color: var(--muted); }
+.diag + h3, .diag + p { margin-top: 16px; }
+.trend { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 4px; }
+.trend li { display: flex; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--border); padding: 5px 0; }
+.trend strong { font-variant-numeric: tabular-nums; }
+.chart { width: 100%; max-width: 100%; height: auto; display: block; margin-top: 10px; }
+.ch-band { fill: var(--accent); opacity: .12; }
+.ch-axis { stroke: var(--border); stroke-width: 1; }
+.ch-tick, .ch-label { fill: var(--muted); font: 12px var(--font-body); }
+.ch-curve { fill: none; stroke: var(--accent); stroke-width: 2; }
+.ch-dot { fill: var(--muted); stroke: var(--surface); stroke-width: 2; }
+.ch-dot:hover { fill: var(--text); }
+.ch-final { stroke: var(--text); stroke-width: 1.5; stroke-dasharray: 4 4; }
+.ch-final-label { fill: var(--text); font: 600 12px var(--font-body); }
+.rating label { min-width: 0; }
+
 @media (max-width: 760px) {
   .replay-grid { grid-template-columns: 1fr; }
 }

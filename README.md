@@ -12,6 +12,10 @@ Encontre a sensibilidade ideal **exclusivamente para o Valorant**.
   agentes com cabeça e corpo, flicks, viradas, micro-ajustes, strafe e peeks.
 - **Diagnóstico**: mostra o que você erra (passa do alvo, chega curto, atira com a mira em movimento,
   mira baixa, reação lenta, fica atrás no strafe, perde peeks) e se isso aponta para a sens ou para a técnica.
+- **Modelo de precisão**: usa todas as rodadas, não só a escolha A/B. Ajusta a curva desempenho × sens
+  (descontando aquecimento e cansaço), mostra a **faixa ótima** e junta pico da curva, equilíbrio do
+  primeiro movimento e suas escolhas numa sens final, com gráfico. No Campo de Tiro, diz se a diferença
+  de abates é real ou pode ser sorte.
 - **Replay estilo Aim Lab** de cada alvo, em primeira pessoa, com gráfico do caminho da mira.
 - **Calibração do mouse** com um cartão ou uma folha A4: corrige a escala do Windows e detecta aceleração.
 - **Calculadora** (eDPI, cm/360, DPI, CS2/Apex/OW2, zoom das miras) e **Guia 2026** com dados dos pros.
@@ -38,6 +42,8 @@ faça a calibração e deixe a tela cheia ligada. No celular, só o modo Campo d
 | `js/valorant.js` | Constantes e matemática do Valorant, distribuição dos pros e ponto de partida |
 | `js/finder.js` | Busca adaptativa A/B cega |
 | `js/targets.js` | Agentes, tipos de alvo, strafe e detecção de acerto |
+| `js/stats.js` | Estatística (regressão, Wilson, z, bootstrap) |
+| `js/model.js` | Curva de desempenho, faixa ótima, equilíbrio, sens final e veredito do Campo de Tiro |
 | `js/scoring.js` | Pontuação (Fitts × precisão) e comparação A × B |
 | `js/analysis.js` | Diagnóstico de erros a partir do caminho da mira |
 | `js/scene.js` | Câmera do Valorant e desenho da cena |

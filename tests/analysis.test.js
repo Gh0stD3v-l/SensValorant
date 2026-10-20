@@ -66,3 +66,37 @@ test('diagnóstico detecta overshoot e tiro em movimento', () => {
   const under = Array.from({ length: 5 }, () => fakeFlick(30, 0.55));
   assert.ok(diagnose(under).some((x) => x.id === 'undershoot'));
 });
+
+test('detecção nova: flick torto, hesitação, lado, posicionamento e confiança', async () => {
+  const { sensTrends, sessionTrend } = await import('../js/analysis.js');
+  // Flick com arco vertical e mira parada na cabeça 300 ms antes do clique.
+  const mk = (dist, side, { arc = 0, wait = 0, startPitch = 0, sens = 0.3, reach = 1, at = 0 } = {}) => {
+    const target = { spec: { type: 'flick', head: 0.75, height: 0 }, yaw0: side * dist, pitch0: 0 };
+    const path = [];
+    let t = 0;
+    for (; t <= 400; t += 5) {
+      const k = t < 100 ? 0 : Math.min(1, (t - 100) / 250);
+      const e = (1 - Math.cos(k * Math.PI)) / 2;
+      path.push([t, side * dist * reach * e, startPitch * (1 - e) + arc * Math.sin(e * Math.PI)]);
+    }
+    for (; t <= 400 + wait; t += 5) path.push([t, side * dist * reach, 0]);
+    return { type: 'flick', dist, radius: 0.75, time: (400 + wait) / 1000, hit: true, misses: 0, body: 0, overshoot: 0, path, clicks: [[400 + wait, side * dist * reach, 0, 'head']], target, startYaw: 0, startPitch, sens, at };
+  };
+  const trials = [
+    ...Array.from({ length: 4 }, () => mk(30, 1, { arc: 5, wait: 300, startPitch: 4 })),
+    ...Array.from({ length: 4 }, () => mk(30, -1, { arc: 5, wait: 300, startPitch: 4 })),
+  ];
+  const ids = diagnose(trials).map((d) => d.id);
+  for (const id of ['curve', 'hesitation', 'placement']) assert.ok(ids.includes(id), `${id} em ${ids}`);
+  for (const d of diagnose(trials)) assert.ok(['alta', 'média'].includes(d.confidence));
+
+  // Tendência: passar do alvo cresce com a sens.
+  const trend = [];
+  for (const [sens, reach] of [[0.25, 0.9], [0.3, 1.0], [0.35, 1.2], [0.4, 1.35]]) {
+    for (let i = 0; i < 5; i++) trend.push(mk(30, 1, { sens, reach }));
+  }
+  const tr = sensTrends(trend);
+  const over = tr.find((x) => x.id === 'overshoot');
+  assert.ok(over && over.delta > 15, JSON.stringify(tr));
+  assert.equal(sessionTrend(trend.slice(0, 5)), null);
+});

@@ -51,6 +51,34 @@ Polling rate: não há estatística confiável. As fontes dizem que a maioria do
   melhora o método com **teste cego** (ordem aleatória, sem mostrar o valor) e **medição
   objetiva**.
 
+## Precisão do finder (pesquisa de out/2026)
+
+- **NVIDIA, Boudaoud, Spjut e Kim (IEEE CoG 2022; IEEE Transactions on Games 15(4), 2023)**: na
+  média, as pessoas miraram melhor entre **0,45 e 1,8 °/mm, ou seja, 20–80 cm/360**. Muitos escolheram
+  ~30 cm/360, geralmente dentro da própria faixa ótima. O ótimo vem de um **trade-off entre
+  velocidade e precisão** que depende da dificuldade do alvo, e o estudo analisa os sub-movimentos.
+  → O app estima a **curva desempenho × sens** de cada jogador, mostra a **faixa ótima** e avisa
+  quando o resultado sai de 20–80 cm/360.
+- **Sub-movimentos na mira** (Experimental Brain Research 2024; Roberts et al. 2020): o movimento
+  primário cobre a maior parte da distância e as correções vêm depois. Há um viés natural de parar
+  um pouco antes do alvo, porque passar do alvo custa mais para corrigir. Movimentos mais rápidos
+  ficam menos precisos. → O app calcula o **equilíbrio do 1º movimento** (a sens em que o erro
+  médio do flick fica em −3%) e conta as correções.
+- **KovaaK's como plataforma de métricas (Frontiers in Sports and Active Living, 2024)**: as métricas
+  de mira são muito confiáveis (ICC 0,947–0,995), mas existe **efeito de aprendizado** entre as
+  tentativas em algumas tarefas. → O app desconta a ordem (aprendizado/cansaço) na curva, usa ordem
+  A-B-B-A e detecta aquecimento ou cansaço na sessão.
+- **Teste de tiro do Campo de Tiro (Difícil)**: 30 bots que aparecem, se movem e agacham. Faixas
+  da comunidade (sem fonte oficial): Ouro 15–18, Platina 18–22, Diamante+ 22–28. → Os abates são
+  tratados como binomiais (n = 30). O app diz se a diferença entre duas sens é real ou pode ser
+  sorte e oferece "mais 1 tentativa de cada".
+- **Limiar de percepção da sens (JND)**: não foi encontrado estudo com o menor % de mudança de sens
+  que um jogador percebe. Por isso o app usa a faixa em que o desempenho fica a até 3% do pico como
+  "diferença que você dificilmente sente", em vez de inventar um número.
+- **Crosshair placement**: guias concordam que deixar a mira na altura da cabeça reduz a correção
+  vertical, mas não há medição publicada. → No teste do navegador, as cabeças ficam na mesma altura
+  e o app mede quanto você precisa corrigir na vertical.
+
 ## Teste no navegador × jogo
 
 Por que a mesma sens pode parecer diferente no site e no Valorant:
@@ -80,3 +108,10 @@ Por que a mesma sens pode parecer diferente no site e no Valorant:
 - https://www.frontiersin.org/journals/human-neuroscience/articles/10.3389/fnhum.2022.979293
 - https://www.csit.carleton.ca/~rteather/pdfs/CHI2017_fitts_game_controllers.pdf
 - https://www.3daimtrainer.com/sensitivity-finder/
+- https://ieee-cog.org/2022/assets/papers/paper_64.pdf
+- https://research.nvidia.com/publication/2022-08_mouse-sensitivity-first-person-targeting-tasks
+- https://pmc.ncbi.nlm.nih.gov/articles/PMC10925653 (KovaaK's, Frontiers 2024)
+- https://researchonline.ljmu.ac.uk/id/eprint/22512/1/s00221-024-06784-0.pdf (sub-movimentos, 2024)
+- https://www.switchbladegaming.com/valorant/aim-training-guide-2/ (Teste de tiro, 30 bots)
+- https://dignitas.gg/articles/blogs/Unknown/14416/a-comprehensive-guide-on-warming-up-in-valorant
+- https://gwern.net/doc/design/2008-casiez.pdf (ganho controle-tela, Casiez 2008)

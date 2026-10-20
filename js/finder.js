@@ -58,9 +58,11 @@ export class SensFinder {
 
   /**
    * @param {'A'|'B'|'tie'} pick
-   * @param {{nudge?:number, data?:object}} [o] nudge: ajuste fino (ex.: -0,03 se passou do alvo)
+   * @param {{nudge?:number, data?:object, guide?:{sens:number, weight:number}|null}} [o]
+   *   nudge: ajuste fino (ex.: -0,03 se passou do alvo); guide: estimativa do modelo de desempenho,
+   *   que puxa o próximo centro na direção dela (weight 0–1)
    */
-  choose(pick, { nudge = 0, data = null } = {}) {
+  choose(pick, { nudge = 0, data = null, guide = null } = {}) {
     if (this.done) throw new Error('Busca já terminou');
     const before = this.center;
     const spreadBefore = this.spread;
@@ -74,7 +76,11 @@ export class SensFinder {
       this.spread *= SHRINK_TIE;
       this.lastKind = null;
     }
-    this.history.push({ round: this.round + 1, spread: spreadBefore, from: before, A: this.pair.A, B: this.pair.B, pick, nudge, data, result: this.center });
+    if (guide && guide.sens > 0 && guide.weight > 0) {
+      const w = Math.min(1, guide.weight);
+      this.center = this._limit(Math.exp((1 - w) * Math.log(this.center) + w * Math.log(guide.sens)));
+    }
+    this.history.push({ round: this.round + 1, spread: spreadBefore, from: before, A: this.pair.A, B: this.pair.B, pick, nudge, guide, data, result: this.center });
     this.round += 1;
     if (!this.done) this._makePair();
   }

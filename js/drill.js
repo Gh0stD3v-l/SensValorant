@@ -126,7 +126,7 @@ export class Drill {
       type: c.t.spec.type, dist: c.dist, radius: c.t.spec.head, time: (now - c.t0) / 1000,
       hit, misses: c.misses, body: c.body, overshoot: c.overshoot,
       path: c.path, clicks: c.clicks, target: c.t, startYaw: c.startYaw, startPitch: c.startPitch,
-      sens: this.block.sens, label: this.block.label,
+      sens: this.block.sens, label: this.block.label, at: now,
     });
     this.flash = { hit, at: now };
     this.target = null;

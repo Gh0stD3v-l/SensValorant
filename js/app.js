@@ -2,7 +2,9 @@ import * as V from './valorant.js';
 import { SensFinder } from './finder.js';
 import { summarize, compare } from './scoring.js';
 import { makeBlockPlan, TYPE_INFO } from './targets.js';
-import { diagnose, sensTendency } from './analysis.js';
+import { diagnose, sensTendency, sensTrends, sessionTrend, trialMetrics } from './analysis.js';
+import { fitCurve, equilibrium, combineEstimates, rangeVerdict, CURVE_WEIGHT } from './model.js';
+import { mean } from './stats.js';
 import { Drill, CountMeter } from './drill.js';
 import { ReplayPlayer } from './replay.js';
 
@@ -55,7 +57,7 @@ const syncMode = () => { $('#attempts-wrap').hidden = document.querySelector('in
 $$('input[name=mode]').forEach((r) => r.addEventListener('change', syncMode));
 syncMode();
 
-const st = { profile: null, finder: null, mode: 'range', results: null, warmup: false, trials: [], rangeQueue: [] };
+const st = { profile: null, finder: null, mode: 'range', results: null, warmup: false, trials: [], points: [], clock: 0, rangeQueue: [], rangeLog: { A: [], B: [] } };
 
 function readProfile() {
   const dpi = readNum($('#f-dpi'));
@@ -122,7 +124,8 @@ $('#profile-form').addEventListener('submit', (ev) => {
     ${statLine(s.sens, p.dpi)}
     <p>Faixa <strong>${V.edpiLabel(s.edpi)}</strong>. A busca começa testando ~40% abaixo e acima e vai trocando de sens até convergir. Em geral leva de 5 a 8 rodadas.</p>
     <ul class="reasons">${s.reasons.map((r) => `<li>${esc(r)}</li>`).join('')}</ul>
-    ${tc ? `<p class="${tc.ok ? 'ok' : 'warn'}">Giro de 180° = ${num(tc.cm180, 1)} cm. ${tc.msg}</p>` : ''}`;
+    ${tc ? `<p class="${tc.ok ? 'ok' : 'warn'}">Giro de 180° = ${num(tc.cm180, 1)} cm. ${tc.msg}</p>` : ''}
+    ${p.mode === 'range' ? '<p class="note">Antes da rodada 1, faça 2 Testes de tiro com a sua sens atual sem anotar. O começo da sessão é aquecimento e distorce a comparação.</p>' : ''}`;
   const browser = p.mode === 'browser';
   $('#browser-opts').hidden = !browser;
   $('#btn-calibrate').hidden = !browser;
@@ -191,6 +194,9 @@ $('#btn-begin').addEventListener('click', () => {
   const p = st.profile;
   st.mode = p.mode;
   st.trials = [];
+  st.points = [];
+  st.clock = 0;
+  st.stoppedByUser = false;
   st.finder = new SensFinder({ startSens: st.startSens, dpi: p.dpi });
   if (st.mode === 'browser' && $('#f-warmup').checked) {
     st.warmup = true;
@@ -238,9 +244,9 @@ function startRound() {
       ...drillOpts(),
     });
   } else {
-    const order = st.profile.attempts === 2 ? ['A', 'B', 'B', 'A'] : ['A', 'B'];
-    st.rangeQueue = order.map((side, i) => ({ side, n: order.slice(0, i + 1).filter((s) => s === side).length }));
     st.rangeLog = { A: [], B: [] };
+    st.roundPoints = [];
+    queueRange(st.profile.attempts === 2 ? ['A', 'B', 'B', 'A'] : ['A', 'B']);
     nextRangeAttempt();
   }
 }
@@ -267,9 +273,12 @@ function onDrillDone({ blocks, fps }) {
   const aTrials = [...blocks[0].trials, ...blocks[3].trials].map((t) => tag(t, 'A'));
   const bTrials = [...blocks[1].trials, ...blocks[2].trials].map((t) => tag(t, 'B'));
   st.roundTrials = [...aTrials, ...bTrials];
+  // Cada bloco vira um ponto da curva desempenho × sens (t = ordem, para descontar aprendizado).
+  st.roundPoints = blocks.map((b, i) => ({ sens: b.sens, value: summarize(b.trials).score, t: st.clock + i }));
+  const baseline = [...st.trials, ...st.roundTrials];
   st.results = {
-    A: { ...st.finder.pair.A, stats: summarize(aTrials), blocks: [summarize(blocks[0].trials), summarize(blocks[3].trials)], diags: diagnose(aTrials) },
-    B: { ...st.finder.pair.B, stats: summarize(bTrials), blocks: [summarize(blocks[1].trials), summarize(blocks[2].trials)], diags: diagnose(bTrials) },
+    A: { ...st.finder.pair.A, trials: aTrials, stats: summarize(aTrials), blocks: [summarize(blocks[0].trials), summarize(blocks[3].trials)], diags: diagnose(aTrials, { baseline }) },
+    B: { ...st.finder.pair.B, trials: bTrials, stats: summarize(bTrials), blocks: [summarize(blocks[1].trials), summarize(blocks[2].trials)], diags: diagnose(bTrials, { baseline }) },
   };
   showChoice();
 }
@@ -278,29 +287,40 @@ function onDrillDone({ blocks, fps }) {
 function nextRangeAttempt() {
   const item = st.rangeQueue[0];
   const cand = st.finder.pair[item.side];
-  const per = st.profile.attempts;
   show('range');
   $('#range-title').textContent = `${roundLabel()} · Sens ${item.side}`;
-  $('#range-sub').textContent = per > 1 ? `tentativa ${item.n} de ${per}` : '';
+  $('#range-sub').textContent = `tentativa ${item.n}`;
   $('#range-sens').textContent = num(cand.sens);
   $('#range-kills').value = '';
   $$('input[name=feel]').forEach((c) => { c.checked = false; });
+  $$('input[name=rating]').forEach((c) => { c.checked = false; });
+  const firstOfRound = !st.rangeLog.A.length && !st.rangeLog.B.length;
+  $('#range-break').hidden = !(firstOfRound && st.finder.round > 0 && st.finder.round % 3 === 0);
   $('#range-kills').focus({ preventScroll: true });
+}
+
+function queueRange(order) {
+  const done = { A: st.rangeLog.A.length, B: st.rangeLog.B.length };
+  st.rangeQueue = order.map((side) => ({ side, n: ++done[side] }));
 }
 
 $('#btn-range-done').addEventListener('click', () => {
   const item = st.rangeQueue.shift();
   const k = readNum($('#range-kills'));
   const feel = $$('input[name=feel]:checked').map((c) => c.value);
-  st.rangeLog[item.side].push({ kills: Number.isFinite(k) ? k : null, feel });
+  const r = document.querySelector('input[name=rating]:checked');
+  const kills = Number.isFinite(k) ? k : null;
+  st.rangeLog[item.side].push({ kills, feel, rating: r ? +r.value : null });
+  if (kills != null) st.roundPoints.push({ sens: st.finder.pair[item.side].sens, value: kills, t: st.clock++ });
   if (st.rangeQueue.length) nextRangeAttempt();
   else {
     const side = (s) => {
       const log = st.rangeLog[s];
       const ks = log.map((x) => x.kills).filter((x) => x != null);
+      const rs = log.map((x) => x.rating).filter((x) => x != null);
       const flags = {};
       for (const x of log) for (const f of x.feel) flags[f] = (flags[f] || 0) + 1;
-      return { ...st.finder.pair[s], log, total: ks.length ? ks.reduce((a, b) => a + b, 0) : null, avg: ks.length ? ks.reduce((a, b) => a + b, 0) / ks.length : null, flags };
+      return { ...st.finder.pair[s], log, kills: ks, avg: ks.length ? mean(ks) : null, rating: rs.length ? mean(rs) : null, flags };
     };
     st.results = { A: side('A'), B: side('B') };
     showChoice();
@@ -308,18 +328,22 @@ $('#btn-range-done').addEventListener('click', () => {
 });
 
 const FEEL_TEXT = { over: 'passou do alvo', under: 'chegou curto', shaky: 'mira tremendo', good: 'confortável' };
+const LEVEL_TEXT = { real: 'diferença real', 'provável': 'provavelmente real', 'pode ser sorte': 'pode ser sorte' };
 
 function rangeSuggestion(A, B) {
-  if (A.avg == null || B.avg == null) return null;
-  const d = A.avg - B.avg;
   const notes = [];
   const lowS = A.kind === 'low' ? A : B, highS = A.kind === 'high' ? A : B;
   if (highS.flags.over && !lowS.flags.over) notes.push('Você passou do alvo só na sens mais alta: a ideal deve estar entre as duas ou abaixo.');
   if (lowS.flags.under && !highS.flags.under) notes.push('Você chegou curto só na sens mais baixa: a ideal deve estar entre as duas ou acima.');
   if (A.flags.shaky && B.flags.shaky) notes.push('Mira tremendo nas duas: pode ser cansaço. Descanse 1 minuto antes da próxima rodada.');
-  const perAttempt = st.profile.attempts;
-  if (Math.abs(d) < (perAttempt > 1 ? 1.5 : 2)) return { pick: 'tie', confidence: 'baixa', notes: ['Diferença pequena de abates: decida pela sensação.', ...notes] };
-  return { pick: d > 0 ? 'A' : 'B', confidence: Math.abs(d) >= 4 ? 'alta' : 'média', notes };
+  const v = rangeVerdict(A.kills, B.kills);
+  const byRating = A.rating != null && B.rating != null && Math.abs(A.rating - B.rating) >= 1 ? (A.rating > B.rating ? 'A' : 'B') : null;
+  if (!v) return byRating ? { pick: byRating, confidence: 'baixa', notes: ['Sem abates anotados: sugestão pela nota de controle.', ...notes] } : null;
+  notes.unshift(`${num(Math.abs(v.d), 1)} abate${Math.abs(v.d) >= 1.5 ? 's' : ''} de diferença por tentativa: ${LEVEL_TEXT[v.level]} (chance de ${v.d >= 0 ? 'A' : 'B'} ser mesmo melhor: ${Math.round(100 * Math.max(v.pA, 1 - v.pA))}%).`);
+  if (v.level === 'real') return { pick: v.d > 0 ? 'A' : 'B', confidence: 'alta', notes, verdict: v };
+  if (v.level === 'provável') return { pick: v.d > 0 ? 'A' : 'B', confidence: 'média', notes: [...notes, 'Uma tentativa a mais de cada deixa a decisão mais segura.'], verdict: v };
+  if (byRating) return { pick: byRating, confidence: 'baixa', notes: [...notes, `Abates empatados: a Sens ${byRating} teve nota de controle maior.`], verdict: v };
+  return { pick: 'tie', confidence: 'baixa', notes: [...notes, 'Abates e controle empatados: escolha pela sensação ou faça mais 1 tentativa de cada.'], verdict: v };
 }
 
 /** Ajuste fino a partir das marcações: passou do alvo → desce 3%, chegou curto → sobe 3%. */
@@ -329,10 +353,22 @@ function rangeNudge(pick) {
   return (f.under ? 0.03 : 0) - (f.over ? 0.03 : 0);
 }
 
+// ---------------- Modelo de desempenho ----------------
+function currentFit(extra = []) {
+  return fitCurve([...st.points, ...extra]);
+}
+
+function guideFrom(fit) {
+  if (!fit?.ok || fit.edge || fit.confidence === 'baixa') return null;
+  return { sens: fit.opt, weight: fit.confidence === 'alta' ? 0.5 : 0.3 };
+}
+
 // ---------------- Escolha ----------------
+const confTag = (c) => `<span class="conf conf-${c === 'alta' ? 'alta' : 'media'}">${c === 'alta' ? 'certeza alta' : 'pode ser'}</span>`;
+
 function diagList(diags, max = 3) {
   if (!diags.length) return '<p class="ok small">Nenhum problema claro nesta sens.</p>';
-  return `<ul class="diag">${diags.slice(0, max).map((d) => `<li class="sev-${d.severity === 'média' ? 'media' : d.severity}"><strong>${esc(d.title)}</strong><span>${esc(d.detail)}</span></li>`).join('')}</ul>`;
+  return `<ul class="diag">${diags.slice(0, max).map((d) => `<li class="sev-${d.severity === 'média' ? 'media' : d.severity}"><strong>${esc(d.title)} ${confTag(d.confidence)}</strong><span>${esc(d.detail)}</span></li>`).join('')}</ul>`;
 }
 
 function showChoice() {
@@ -356,13 +392,13 @@ function showChoice() {
     $('#choice-diag').innerHTML = `<div><h3>O que você errou com A</h3>${diagList(A.diags)}</div><div><h3>O que você errou com B</h3>${diagList(B.diags)}</div>`;
     if (st.fps && st.fps < 90) suggestion.notes.push(`Seu navegador rodou a ~${Math.round(st.fps)} FPS. Abaixo de 90 a mira parece mais pesada que no jogo.`);
   } else {
-    const per = st.profile.attempts;
     const att = (s) => s.log.map((x) => x.kills ?? '–').join(' + ');
     const feel = (s) => Object.keys(s.flags).map((k) => `${FEEL_TEXT[k]}${s.flags[k] > 1 ? ` (${s.flags[k]}×)` : ''}`).join(', ') || '–';
     $('#choice-table').innerHTML = `<table class="tbl ab">${head}<tbody>
       <tr><th>Sens</th><td>${num(A.sens)}</td><td>${num(B.sens)}</td></tr>
-      <tr><th>Abates${per > 1 ? ' por tentativa' : ''}</th><td>${att(A)}</td><td>${att(B)}</td></tr>
-      ${per > 1 ? `<tr><th>Média</th><td>${A.avg == null ? '–' : num(A.avg, 1)}</td><td>${B.avg == null ? '–' : num(B.avg, 1)}</td></tr>` : ''}
+      <tr><th>Abates por tentativa</th><td>${att(A)}</td><td>${att(B)}</td></tr>
+      <tr><th>Média</th><td>${A.avg == null ? '–' : num(A.avg, 1)}</td><td>${B.avg == null ? '–' : num(B.avg, 1)}</td></tr>
+      <tr><th>Nota de controle</th><td>${A.rating == null ? '–' : `${num(A.rating, 1)}/5`}</td><td>${B.rating == null ? '–' : `${num(B.rating, 1)}/5`}</td></tr>
       <tr><th>Como sentiu</th><td>${feel(A)}</td><td>${feel(B)}</td></tr></tbody></table>`;
     suggestion = rangeSuggestion(A, B);
     $('#choice-diag').innerHTML = '';
@@ -372,58 +408,150 @@ function showChoice() {
     ? `<p><strong>Sugestão pelos dados: ${suggestion.pick === 'tie' ? 'empate' : `Sens ${suggestion.pick}`}</strong> (confiança ${suggestion.confidence}).</p>${suggestion.notes.map((n) => `<p>${esc(n)}</p>`).join('')}`
     : '';
   $('#btn-replays-round').hidden = st.mode !== 'browser';
+  $('#btn-more').hidden = st.mode !== 'range';
   $('#btn-repeat').hidden = f.repeats >= 3;
-  $('#choice-progress').textContent = `Faltam cerca de ${f.remaining} rodada${f.remaining > 1 ? 's' : ''}. A busca continua enquanto você escolher sempre o mesmo lado.`;
+  const fit = currentFit(st.roundPoints || []);
+  const model = fit.ok
+    ? ` Pelo seu desempenho em todas as rodadas, o pico está perto de ${num(fit.opt)} (${fit.confidence === 'alta' ? 'confiança alta' : fit.confidence === 'média' ? 'confiança média' : 'ainda incerto'}).`
+    : fit.reason === 'sem pico' ? ` Seu desempenho ainda ${fit.direction > 0 ? 'sobe com sens mais alta' : 'sobe com sens mais baixa'}: a busca vai continuar nessa direção.` : '';
+  $('#choice-progress').textContent = `Faltam cerca de ${f.remaining} rodada${f.remaining > 1 ? 's' : ''}.${model}`;
   show('choice');
 }
 
-function commitRoundTrials() {
+function commitRound() {
   if (st.roundTrials) st.trials.push(...st.roundTrials);
+  if (st.roundPoints) {
+    st.points.push(...st.roundPoints);
+    if (st.mode === 'browser') st.clock += st.roundPoints.length;
+  }
   st.roundTrials = null;
+  st.roundPoints = null;
 }
 
 $$('[data-pick]').forEach((b) => b.addEventListener('click', () => {
   const pick = b.dataset.pick;
-  commitRoundTrials();
-  st.finder.choose(pick, { nudge: rangeNudge(pick), data: { mode: st.mode } });
+  commitRound();
+  st.finder.choose(pick, { nudge: rangeNudge(pick), guide: guideFrom(currentFit()), data: { mode: st.mode } });
   if (st.finder.done) showResult();
   else startRound();
 }));
 $$('[data-stop]').forEach((b) => b.addEventListener('click', () => {
-  commitRoundTrials();
+  commitRound();
   st.finder.finishWith(st.finder.pair[b.dataset.stop].sens);
+  st.stoppedByUser = true;
   showResult();
 }));
 $('#btn-repeat').addEventListener('click', () => {
   st.roundTrials = null;
+  st.roundPoints = null;
   st.finder.repeat();
   startRound();
 });
+$('#btn-more').addEventListener('click', () => {
+  queueRange(['A', 'B']);
+  nextRangeAttempt();
+});
 
 // ---------------- Resultado ----------------
+const confWord = { alta: 'alta', 'média': 'média', baixa: 'baixa' };
+
+/** Junta preferência (A/B), curva de desempenho e equilíbrio do 1º movimento. */
+function finalEstimate() {
+  const f = st.finder;
+  const fit = currentFit();
+  const parts = [{ key: 'pref', label: 'Suas escolhas A/B', sens: f.result, weight: st.stoppedByUser ? 1.5 : 1 }];
+  if (fit.ok) parts.push({ key: 'curve', label: 'Pico da curva de desempenho', sens: fit.opt, weight: fit.edge ? 0.2 : CURVE_WEIGHT[fit.confidence] });
+  let eq = null;
+  if (st.mode === 'browser' || st.trials.length) {
+    const pts = st.trials.map((t) => ({ t, m: trialMetrics(t) }))
+      .filter(({ t, m }) => (t.type === 'flick' || t.type === 'turn') && m.endpoint)
+      .map(({ t, m }) => ({ sens: t.sens, along: m.endpoint.alongPct }));
+    eq = equilibrium(pts);
+    if (eq.ok) parts.push({ key: 'eq', label: 'Equilíbrio do 1º movimento', sens: eq.sens, weight: 0.5 });
+  }
+  const comb = combineEstimates(parts);
+  return { fit, eq, comb, sens: V.roundSens(comb.sens) };
+}
+
+function chartSVG(points, fit, final, yLabel) {
+  if (points.length < 3) return '';
+  const W = 640, H = 260, L = 52, R = 16, T = 16, B = 44;
+  const ss = points.map((p) => p.sens);
+  const smin = Math.min(...ss, final) * 0.94, smax = Math.max(...ss, final) * 1.06;
+  const vs = points.map((p) => p.value);
+  let vmin = Math.min(...vs), vmax = Math.max(...vs);
+  if (vmax === vmin) { vmax += 1; vmin -= 1; }
+  const pad = (vmax - vmin) * 0.12;
+  vmin -= pad; vmax += pad;
+  const X = (s) => L + ((Math.log(s) - Math.log(smin)) / (Math.log(smax) - Math.log(smin))) * (W - L - R);
+  const Y = (v) => T + (1 - (v - vmin) / (vmax - vmin)) * (H - T - B);
+  const ticks = Array.from({ length: 5 }, (_, i) => smin * (smax / smin) ** ((i + 0.5) / 5));
+  let band = '', curve = '';
+  if (fit?.ok) {
+    const [a, b] = fit.range;
+    band = `<rect class="ch-band" x="${X(Math.max(a, smin))}" y="${T}" width="${Math.max(0, X(Math.min(b, smax)) - X(Math.max(a, smin)))}" height="${H - T - B}"><title>Faixa ótima: ${num(a)} a ${num(b)}</title></rect>`;
+    const pts = Array.from({ length: 60 }, (_, i) => smin * (smax / smin) ** (i / 59)).map((s) => [X(s), Y(Math.min(vmax, Math.max(vmin, fit.predict(s))))]);
+    curve = `<path class="ch-curve" d="M${pts.map((p) => p.map((x) => x.toFixed(1)).join(',')).join('L')}"/>`;
+  }
+  return `<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Desempenho por sens">
+    ${band}
+    <line class="ch-axis" x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}"/>
+    ${ticks.map((s) => `<text class="ch-tick" x="${X(s)}" y="${H - B + 18}" text-anchor="middle">${num(s)}</text>`).join('')}
+    <text class="ch-label" x="${(L + W - R) / 2}" y="${H - 6}" text-anchor="middle">sens (escala logarítmica)</text>
+    <text class="ch-label" x="14" y="${(T + H - B) / 2}" text-anchor="middle" transform="rotate(-90 14 ${(T + H - B) / 2})">${yLabel}</text>
+    ${curve}
+    ${points.map((p) => `<circle class="ch-dot" cx="${X(p.sens).toFixed(1)}" cy="${Y(p.value).toFixed(1)}" r="5"><title>Sens ${num(p.sens)}: ${num(p.value, yLabel === 'abates' ? 0 : 2)}</title></circle>`).join('')}
+    <line class="ch-final" x1="${X(final)}" y1="${T}" x2="${X(final)}" y2="${H - B}"/>
+    <text class="ch-final-label" x="${Math.min(W - R - 4, X(final) + 6)}" y="${T + 12}" text-anchor="${X(final) > W - 120 ? 'end' : 'start'}">sua sens ${num(final)}</text>
+  </svg>`;
+}
+
 function showResult() {
   const f = st.finder;
   const p = st.profile;
-  const sens = f.result;
+  const est = finalEstimate();
+  const sens = est.sens;
+  st.finalSens = sens;
   const e = sens * p.dpi;
+  const cm = V.cm360(sens, p.dpi);
   const tc = V.turnCheck(sens, p.dpi, p.padWidthCm);
+  const fit = est.fit;
   $('#result-main').innerHTML = `${statLine(sens, p.dpi)}
+    ${fit.ok && fit.confidence !== 'baixa' ? `<p>Sua <strong>faixa ótima</strong> vai de <strong>${num(fit.range[0])}</strong> a <strong>${num(fit.range[1])}</strong>: dentro dela seu desempenho fica a até 3% do melhor. Diferenças menores que essa você dificilmente sente.</p>`
+      : fit.ok ? '<p class="note">A curva de desempenho ainda está incerta (resultados muito variados entre os blocos). Use "Re-checar" ou confirme no Campo de Tiro.</p>' : ''}
     <p>Sens <strong>${V.edpiLabel(e)}</strong>. Mais alta que a de ${Math.round(V.proPercentile(e))}% dos pros (dados de 2026).</p>
+    ${cm < 20 || cm > 80 ? `<p class="warn">${num(cm, 1)} cm/360 está fora da faixa em que a maioria das pessoas mira melhor no estudo da NVIDIA (20–80 cm). Vale confirmar no Campo de Tiro.</p>` : ''}
     ${tc ? `<p class="${tc.ok ? 'ok' : 'warn'}">Giro de 180° = ${num(tc.cm180, 1)} cm. ${tc.msg}</p>` : ''}
-    ${st.mode === 'browser' ? '<p class="note">Próximo passo: confirme no Campo de Tiro. O botão abaixo testa esta sens contra ±6% em 2 rodadas.</p>' : ''}`;
+    ${st.mode === 'browser' ? '<p class="note">Próximo passo: confirme no Campo de Tiro. O botão abaixo testa esta sens contra ±6%.</p>' : ''}`;
 
-  // Diagnóstico com as tentativas das sens mais próximas do resultado (últimas rodadas).
+  const parts = est.comb.parts;
+  const yLabel = st.mode === 'browser' ? 'pontuação por bloco' : 'abates';
+  $('#result-how').innerHTML = `<h2>Como calculamos</h2>
+    <div class="table-wrap"><table class="tbl"><thead><tr><th>Fonte</th><th>Sens</th><th>Peso</th></tr></thead><tbody>
+    ${parts.map((x) => `<tr><th>${x.label}</th><td>${num(x.sens)}</td><td>${Math.round(x.share * 100)}%</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted small">Concordância entre as fontes: <strong>${est.comb.agreement}</strong>.
+    ${fit.ok ? `Curva com ${fit.n} medições, confiança ${confWord[fit.confidence]} (80% de chance de o pico estar entre ${num(fit.ci[0])} e ${num(fit.ci[1])}).` : fit.reason === 'sem pico' ? `A curva ainda não tem pico: seu desempenho ${fit.direction > 0 ? 'subiu até a sens mais alta testada' : 'subiu até a sens mais baixa testada'}. Re-checar ajuda.` : 'Poucas medições para a curva.'}
+    ${est.eq?.ok ? 'O equilíbrio do 1º movimento é a sens em que seus flicks nem passam nem param antes do alvo.' : ''}</p>
+    ${chartSVG(st.points, fit, sens, yLabel)}`;
+
+  // Diagnóstico com as tentativas perto do resultado, comparado com a sessão toda.
   const near = st.trials.filter((t) => Math.abs(t.sens - sens) / sens <= 0.15);
-  const diags = near.length >= 12 ? diagnose(near) : [];
+  const diags = near.length >= 12 ? diagnose(near, { baseline: st.trials }) : [];
+  const trends = sensTrends(st.trials);
+  const session = sessionTrend(st.trials);
   const diagEl = $('#result-diag');
-  diagEl.hidden = !near.length;
-  if (near.length) {
+  diagEl.hidden = !st.trials.length;
+  if (st.trials.length) {
     const tend = sensTendency(diags);
     const tendTxt = tend <= -2 ? 'Seus erros apontam para sens um pouco <strong>alta</strong>. Se continuar passando do alvo no jogo, desça 3–5%.'
       : tend >= 2 ? 'Seus erros apontam para sens um pouco <strong>baixa</strong>. Se continuar chegando curto no jogo, suba 3–5%.'
         : 'Seus erros não apontam para a sens: o que sobra é técnica.';
+    const unitTxt = (t) => (t.unit === 'pts' ? `${t.delta > 0 ? '+' : ''}${Math.round(t.delta)} pontos percentuais` : t.unit === 's' ? `${t.delta > 0 ? '+' : ''}${num(t.delta, 2)} s` : `${t.delta > 0 ? '+' : ''}${num(t.delta, 1)}`);
     diagEl.innerHTML = `<h2>O que você está errando</h2><p>${tendTxt}</p>
-      ${diags.length ? `<ul class="diag big">${diags.map((d) => `<li class="sev-${d.severity === 'média' ? 'media' : d.severity}"><strong>${esc(d.title)}</strong><span>${esc(d.detail)}</span><em>${esc(d.tip)}</em></li>`).join('')}</ul>` : '<p class="ok">Nenhum problema claro. Boa mira!</p>'}`;
+      ${diags.length ? `<ul class="diag big">${diags.map((d) => `<li class="sev-${d.severity === 'média' ? 'media' : d.severity}"><strong>${esc(d.title)} ${confTag(d.confidence)}</strong><span>${esc(d.detail)}</span><em>${esc(d.tip)}</em></li>`).join('')}</ul>` : '<p class="ok">Nenhum problema claro perto da sua sens.</p>'}
+      ${trends.length ? `<h3>O que muda quando você sobe a sens (de ${num(trends[0].from)} para ${num(trends[0].to)})</h3><ul class="trend">${trends.map((t) => `<li><span>${t.label}</span><strong>${unitTxt(t)}</strong></li>`).join('')}</ul><p class="muted small">Comparando você com você mesmo: o que cresce junto com a sens é efeito dela; o que fica igual em todas é técnica.</p>` : ''}
+      ${session && session.kind !== 'stable' ? `<p class="note ${session.kind === 'fatigue' ? 'warn' : ''}">${session.kind === 'fatigue' ? `Seu desempenho caiu ${Math.round(-session.change * 100)}% no fim da sessão (cansaço). O modelo desconta isso, mas teste descansado da próxima vez.` : `Seu desempenho subiu ${Math.round(session.change * 100)}% do começo para o fim (aquecimento). O modelo desconta isso; aqueça antes da próxima vez.`}</p>` : ''}`;
   }
 
   const dpis = [400, 800, 1600, 3200];
@@ -442,7 +570,8 @@ function showResult() {
     if (h.pick === 'stop') return `<li>Você parou: confortável com <strong>${num(h.result)}</strong></li>`;
     const chosen = h.pick === 'tie' ? 'empate' : `${h.pick} (${h[h.pick].kind === 'low' ? 'mais baixa' : 'mais alta'})`;
     const nudge = h.nudge ? ` ${h.nudge > 0 ? '+' : ''}${Math.round(h.nudge * 100)}% pela sensação` : '';
-    return `<li>A ${num(h.A.sens)} vs. B ${num(h.B.sens)} → ${chosen}${nudge} → <strong>${num(h.result)}</strong></li>`;
+    const guide = h.guide ? `, ajustada pela curva (${num(h.guide.sens)})` : '';
+    return `<li>A ${num(h.A.sens)} vs. B ${num(h.B.sens)} → ${chosen}${nudge}${guide} → <strong>${num(h.result)}</strong></li>`;
   }).join('');
   $('#btn-replays-all').hidden = !st.trials.length;
   $('#btn-confirm-range').hidden = st.mode === 'range';
@@ -450,18 +579,26 @@ function showResult() {
   show('result');
 }
 
-$('#btn-recheck').addEventListener('click', () => { st.finder.recheck(0.1); startRound(); });
+$('#btn-recheck').addEventListener('click', () => {
+  st.finder.center = st.finalSens;
+  st.stoppedByUser = false;
+  st.finder.recheck(0.1);
+  startRound();
+});
 $('#btn-confirm-range').addEventListener('click', () => {
-  const sens = st.finder.result;
   st.mode = 'range';
   st.confirming = true;
+  st.stoppedByUser = false;
+  // Pontos do navegador e abates não estão na mesma escala: a curva recomeça no Campo de Tiro.
+  st.points = [];
+  st.clock = 0;
   if (!st.profile.attempts) st.profile.attempts = 2;
-  st.finder = new SensFinder({ startSens: sens, dpi: st.profile.dpi, spread: 0.06, minSpread: 0.03, maxRounds: 3 });
+  st.finder = new SensFinder({ startSens: st.finalSens, dpi: st.profile.dpi, spread: 0.06, minSpread: 0.03, maxRounds: 3 });
   startRound();
 });
 $('#btn-restart').addEventListener('click', () => { st.confirming = false; renderPast(); show('profile'); });
 $('#btn-copy').addEventListener('click', async () => {
-  const p = st.profile, s = st.finder.result;
+  const p = st.profile, s = st.finalSens;
   const txt = `Minha sens no Valorant: ${num(s)} @ ${p.dpi} DPI | eDPI ${Math.round(s * p.dpi)} | ${num(V.cm360(s, p.dpi), 1)} cm/360`;
   try {
     await navigator.clipboard.writeText(txt);
