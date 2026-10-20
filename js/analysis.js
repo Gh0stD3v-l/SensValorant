@@ -11,7 +11,8 @@
 
 import { targetAt, velocityAt, offset, wrap, hitTest } from './targets.js';
 import { wilson, mean, sd, lstsq } from './stats.js';
-import { trialScore } from './scoring.js';
+import { trialScore, throughput } from './scoring.js';
+import { YAW, CM_PER_INCH } from './valorant.js';
 
 const STEP = 10; // ms entre amostras reamostradas
 const dec = (x, d = 1) => x.toFixed(d).replace('.', ',');
@@ -404,4 +405,90 @@ export function sessionTrend(trials) {
   if (change < -0.15) return { kind: 'fatigue', change };
   if (change > 0.15) return { kind: 'warmup', change };
   return { kind: 'stable', change };
+}
+
+/** Distância física (cm) que o mouse precisa andar para girar `deg` graus com essa sens e DPI. */
+export const cmFor = (deg, sens, dpi) => (deg / (YAW * sens) / dpi) * CM_PER_INCH;
+
+/**
+ * Detecta "levantadas" do mouse no 1º movimento: a mira para (mouse no ar, sem contagens) por
+ * pelo menos 60 ms e volta a andar na mesma direção antes de chegar a 85% da distância.
+ */
+export function countLifts(tr) {
+  const rs = resample(tr.path);
+  if (rs.length < 4) return 0;
+  const start = targetAt(tr.target, 0);
+  const dy = wrap(start.yaw - tr.startYaw), dp = start.pitch - tr.startPitch;
+  const len = Math.hypot(dy, dp) || 1;
+  const prog = rs.map((q) => (wrap(q[1] - tr.startYaw) * dy + (q[2] - tr.startPitch) * dp) / len / len);
+  let lifts = 0, still = 0, started = false;
+  for (let i = 1; i < rs.length; i++) {
+    const v = ((prog[i] - prog[i - 1]) * len * 1000) / STEP; // °/s na direção do alvo
+    if (prog[i] >= 0.85) break;
+    if (!started) { if (v > 20) started = true; continue; }
+    if (Math.abs(v) < 3) still += STEP;
+    else {
+      if (still >= 60 && v > 20) lifts++;
+      still = 0;
+    }
+  }
+  return lifts;
+}
+
+/**
+ * Perfil físico do movimento: quantos cm o mouse anda nos flicks e viradas, se você levanta o
+ * mouse e se os movimentos longos ficam bem mais lentos que os curtos. Daí sai o estilo de mira
+ * que você realmente usa (braço, misto ou pulso), que pode ser diferente do que você marcou.
+ * @param {object[]} trials
+ * @param {number} dpi
+ */
+export function movementProfile(trials, dpi) {
+  const moves = trials
+    .filter((t) => BALLISTIC.includes(t.type))
+    .map((t) => ({ t, cm: cmFor(t.dist, t.sens, dpi), lifts: countLifts(t), tp: t.hit ? throughput(t.dist, t.radius, t.time) : null }));
+  if (moves.length < 6) return null;
+  const cms = moves.map((m) => m.cm);
+  const short = moves.filter((m) => m.cm < 8 && m.tp != null).map((m) => m.tp);
+  const long = moves.filter((m) => m.cm >= 12 && m.tp != null).map((m) => m.tp);
+  const longMoves = moves.filter((m) => m.cm >= 12);
+  const liftRate = longMoves.length ? longMoves.filter((m) => m.lifts > 0).length / longMoves.length : 0;
+  const ratio = short.length >= 3 && long.length >= 3 ? mean(long) / mean(short) : null;
+  const smooth = moves.filter((m) => m.lifts === 0 && m.tp != null).map((m) => m.cm);
+  const maxSmooth = smooth.length ? Math.max(...smooth) : 0;
+
+  let style = null;
+  let evidence = '';
+  if (longMoves.length >= 3) {
+    if (liftRate >= 0.3) {
+      style = 'pulso';
+      evidence = `você levantou o mouse em ${pct(liftRate)} dos movimentos com mais de 12 cm`;
+    } else if (ratio != null && ratio < 0.7) {
+      style = 'pulso';
+      evidence = `movimentos longos (12 cm ou mais) saem ${pct(1 - ratio)} menos eficientes que os curtos`;
+    } else if (ratio != null && ratio >= 0.85 && maxSmooth >= 15) {
+      style = 'braco';
+      evidence = `você faz movimentos de até ${dec(maxSmooth)} cm sem levantar o mouse e sem perder eficiência`;
+    } else if (ratio != null && ratio < 0.85) {
+      style = 'misto';
+      evidence = 'movimentos longos ficam um pouco menos eficientes, sem você precisar levantar o mouse';
+    }
+  }
+  return {
+    n: moves.length,
+    medianCm: quantileOf(cms, 0.5),
+    maxCm: Math.max(...cms),
+    maxSmooth,
+    liftRate,
+    longCount: longMoves.length,
+    ratio,
+    style,
+    evidence,
+  };
+}
+
+function quantileOf(xs, q) {
+  const a = [...xs].sort((x, y) => x - y);
+  const pos = (a.length - 1) * q;
+  const lo = Math.floor(pos), hi = Math.ceil(pos);
+  return a[lo] + (a[hi] - a[lo]) * (pos - lo);
 }

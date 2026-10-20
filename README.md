@@ -16,6 +16,9 @@ Encontre a sensibilidade ideal **exclusivamente para o Valorant**.
   (descontando aquecimento e cansaço), mostra a **faixa ótima** e junta pico da curva, equilíbrio do
   primeiro movimento e suas escolhas numa sens final, com gráfico. No Campo de Tiro, diz se a diferença
   de abates é real ou pode ser sorte.
+- **Seu movimento**: mede quantos centímetros o mouse anda nos flicks e se você levanta o mouse, e diz
+  se você mira de braço, misto ou pulso (pode ser diferente do que você marcou). O perfil também pergunta
+  a **pegada** (palm, claw, fingertip).
 - **Replay estilo Aim Lab** de cada alvo, em primeira pessoa, com gráfico do caminho da mira.
 - **Calibração do mouse** com um cartão ou uma folha A4: corrige a escala do Windows e detecta aceleração.
 - **Calculadora** (eDPI, cm/360, DPI, CS2/Apex/OW2, zoom das miras) e **Guia 2026** com dados dos pros.

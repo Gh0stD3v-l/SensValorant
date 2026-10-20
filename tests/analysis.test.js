@@ -100,3 +100,44 @@ test('detecção nova: flick torto, hesitação, lado, posicionamento e confian�
   assert.ok(over && over.delta > 15, JSON.stringify(tr));
   assert.equal(sessionTrend(trend.slice(0, 5)), null);
 });
+
+test('estilo de mira pelos centímetros: levantadas e eficiência', async () => {
+  const { movementProfile, countLifts, cmFor } = await import('../js/analysis.js');
+  // 800 DPI, sens 0,4 (eDPI 320, 40,8 cm/360): 90° ≈ 10,2 cm
+  assert.ok(Math.abs(cmFor(90, 0.4, 800) - 10.2) < 0.05);
+  const mk = (dist, time, lift = false, sens = 0.4) => {
+    const target = { spec: { type: dist > 60 ? 'turn' : 'flick', head: 0.75 }, yaw0: dist, pitch0: 0 };
+    const path = [];
+    const T = time * 1000;
+    for (let t = 0; t <= T; t += 5) {
+      let k = Math.min(1, t / (T * 0.8));
+      if (lift) {
+        // anda até 45%, para 120 ms no ar e continua
+        const t1 = T * 0.35, t2 = t1 + 120;
+        k = t < t1 ? 0.45 * (t / t1) : t < t2 ? 0.45 : 0.45 + 0.55 * Math.min(1, (t - t2) / (T * 0.8 - t2));
+      }
+      path.push([t, dist * k, 0]);
+    }
+    return { type: target.spec.type, dist, radius: 0.75, time, hit: true, misses: 0, body: 0, overshoot: 0, path, clicks: [[T, dist, 0, 'head']], target, startYaw: 0, startPitch: 0, sens };
+  };
+  assert.equal(countLifts(mk(120, 0.9, true)), 1);
+  assert.equal(countLifts(mk(120, 0.9)), 0);
+  // Pulso: viradas longas com levantada.
+  const wrist = [...Array.from({ length: 4 }, () => mk(20, 0.35)), ...Array.from({ length: 4 }, () => mk(120, 1.2, true))];
+  assert.equal(movementProfile(wrist, 800).style, 'pulso');
+  // Braço: viradas longas lisas e rápidas.
+  // Braço: viradas de ~18 cm (sens 0,3) lisas e rápidas.
+  const arm = [...Array.from({ length: 4 }, () => mk(20, 0.35, false, 0.3)), ...Array.from({ length: 4 }, () => mk(120, 0.55, false, 0.3))];
+  const pa = movementProfile(arm, 800);
+  assert.equal(pa.style, 'braco', JSON.stringify(pa));
+  // Bom nos longos, mas nenhum passa de 15 cm: ainda não dá para afirmar.
+  assert.equal(movementProfile([...Array.from({ length: 4 }, () => mk(20, 0.35)), ...Array.from({ length: 4 }, () => mk(120, 0.55))], 800).style, null);
+});
+
+test('pegada ajusta o ponto de partida', async () => {
+  const V = await import('../js/valorant.js');
+  const base = V.suggestStart({ dpi: 800, style: 'misto', padWidthCm: 45, role: 'flex' });
+  const ft = V.suggestStart({ dpi: 800, style: 'misto', grip: 'fingertip', padWidthCm: 45, role: 'flex' });
+  const palm = V.suggestStart({ dpi: 800, style: 'misto', grip: 'palm', padWidthCm: 45, role: 'flex' });
+  assert.ok(ft.edpi > base.edpi && palm.edpi < base.edpi);
+});

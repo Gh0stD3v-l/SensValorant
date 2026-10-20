@@ -2,7 +2,7 @@ import * as V from './valorant.js';
 import { SensFinder } from './finder.js';
 import { summarize, compare } from './scoring.js';
 import { makeBlockPlan, TYPE_INFO } from './targets.js';
-import { diagnose, sensTendency, sensTrends, sessionTrend, trialMetrics } from './analysis.js';
+import { diagnose, sensTendency, sensTrends, sessionTrend, trialMetrics, movementProfile } from './analysis.js';
 import { fitCurve, equilibrium, combineEstimates, rangeVerdict, CURVE_WEIGHT } from './model.js';
 import { mean } from './stats.js';
 import { Drill, CountMeter } from './drill.js';
@@ -74,6 +74,7 @@ function readProfile() {
     currentSens: currentSens > 0 ? currentSens : undefined,
     converted,
     style: document.querySelector('input[name=style]:checked').value,
+    grip: document.querySelector('input[name=grip]:checked').value || undefined,
     padWidthCm: +$('#f-pad').value,
     role: $('#f-role').value,
     mode: document.querySelector('input[name=mode]:checked').value,
@@ -554,6 +555,8 @@ function showResult() {
       ${session && session.kind !== 'stable' ? `<p class="note ${session.kind === 'fatigue' ? 'warn' : ''}">${session.kind === 'fatigue' ? `Seu desempenho caiu ${Math.round(-session.change * 100)}% no fim da sessão (cansaço). O modelo desconta isso, mas teste descansado da próxima vez.` : `Seu desempenho subiu ${Math.round(session.change * 100)}% do começo para o fim (aquecimento). O modelo desconta isso; aqueça antes da próxima vez.`}</p>` : ''}`;
   }
 
+  renderMovement(sens);
+
   const dpis = [400, 800, 1600, 3200];
   $('#result-extra').innerHTML = `
     <div class="card mini"><h3>Mesma sens em outros DPIs</h3><table class="tbl">${dpis.map((d) => `<tr><th>${d} DPI</th><td>${num(V.roundSens(V.convertDpi(sens, p.dpi, d)))}</td></tr>`).join('')}</table></div>
@@ -577,6 +580,40 @@ function showResult() {
   $('#btn-confirm-range').hidden = st.mode === 'range';
   saveHistory({ date: new Date().toISOString(), sens, dpi: p.dpi, mode: st.mode });
   show('result');
+}
+
+/** Estilo de mira real, medido pelos centímetros que o mouse andou nos flicks e viradas. */
+function renderMovement(sens) {
+  const el = $('#result-move');
+  const p = st.profile;
+  const mp = st.trials.length ? movementProfile(st.trials, p.dpi) : null;
+  el.hidden = !mp;
+  if (!mp) return;
+  const label = V.STYLE_LABEL;
+  const cm180 = V.cm360(sens, p.dpi) / 2;
+  let verdict = '<p class="muted">Ainda não deu para saber seu estilo: você foi bem nos movimentos longos, mas nenhum passou de 15 cm, que é onde braço e pulso se separam. Com sens mais baixa ou mais rodadas isso aparece.</p>';
+  if (mp.style) {
+    const same = mp.style === p.style || (mp.style === 'pulso' && p.style === 'dedos');
+    const alt = V.suggestStart({ ...p, style: mp.style });
+    verdict = same
+      ? `<p class="ok">Pelos seus movimentos você mira mesmo com <strong>${label[mp.style]}</strong>, como marcou: ${esc(mp.evidence)}.</p>`
+      : `<p class="warn">Você marcou <strong>${label[p.style]}</strong>, mas pelos seus movimentos você mira com <strong>${label[mp.style]}</strong>: ${esc(mp.evidence)}.</p>
+         <p>Com esse estilo, o ponto de partida seria <strong>${num(alt.sens)}</strong> (eDPI ${Math.round(alt.edpi)}). Na próxima busca, marque <strong>${label[mp.style]}</strong> para começar mais perto.</p>`;
+  }
+  const tips = [];
+  if (mp.liftRate >= 0.3) tips.push(`Seu giro de 180° pede ${num(cm180, 1)} cm, mais do que você alcança sem levantar o mouse. Use o braço nas viradas grandes ou suba um pouco a sens.`);
+  if (mp.style === 'pulso' && cm180 > 20) tips.push(`Para quem mira de pulso, ${num(cm180, 1)} cm por 180° é bastante. Se as viradas te incomodam no jogo, a ponta de cima da sua faixa ótima é a melhor escolha.`);
+  if (mp.style === 'braco' && p.padWidthCm && p.padWidthCm < 40) tips.push('Você mira com o braço num mousepad pequeno: um mousepad maior deixa você usar sens mais baixa com conforto.');
+  el.innerHTML = `<h2>Seu movimento</h2>
+    <div class="stats">
+      <div><span>Flick típico</span><strong>${num(mp.medianCm, 1)} cm</strong></div>
+      <div><span>Maior sem levantar</span><strong>${num(mp.maxSmooth, 1)} cm</strong></div>
+      <div><span>Levantou o mouse</span><strong>${mp.longCount ? `${Math.round(mp.liftRate * 100)}%` : '–'}</strong></div>
+      <div><span>Giro de 180°</span><strong>${num(cm180, 1)} cm</strong></div>
+    </div>
+    ${verdict}
+    ${tips.map((t) => `<p class="note">${esc(t)}</p>`).join('')}
+    <p class="muted small">Medido pelos centímetros que o mouse andou em ${mp.n} flicks e viradas (${mp.longCount} com 12 cm ou mais). Movimento longo sem perder eficiência é sinal de braço; levantar o mouse ou ficar bem mais lento nos longos é sinal de pulso.</p>`;
 }
 
 $('#btn-recheck').addEventListener('click', () => {

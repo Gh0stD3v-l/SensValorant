@@ -56,6 +56,15 @@
             <label><input type="radio" name="style" value="dedos"> Dedos</label>
           </div>
         </fieldset>
+        <fieldset class="full">
+          <legend>Pegada do mouse</legend>
+          <div class="chips">
+            <label><input type="radio" name="grip" value="palm"> Palm <span class="opt">(mão toda apoiada)</span></label>
+            <label><input type="radio" name="grip" value="claw"> Claw <span class="opt">(dedos em garra)</span></label>
+            <label><input type="radio" name="grip" value="fingertip"> Fingertip <span class="opt">(só a ponta dos dedos)</span></label>
+            <label><input type="radio" name="grip" value="" checked> Não sei</label>
+          </div>
+        </fieldset>
         <label for="f-pad">Largura do mousepad
           <select id="f-pad">
             <option value="30">Pequeno (~30 cm)</option>
@@ -207,6 +216,7 @@
       </div>
       <div id="result-how" class="card"></div>
       <div id="result-diag" class="card" hidden></div>
+      <div id="result-move" class="card" hidden></div>
       <div id="result-extra" class="result-grid"></div>
       <div class="card">
         <h3>Como a busca chegou aqui</h3>

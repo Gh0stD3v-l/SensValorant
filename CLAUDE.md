@@ -13,7 +13,9 @@ Construir o **melhor sens finder possível, exclusivo para Valorant**. Ele é um
 busca cega, diagnóstico e replay.
 
 - `js/valorant.js`: constantes do jogo, fórmulas, distribuição de eDPI dos pros (log-normal,
-  mediana 235, σ 0,34), ponto de partida pelo perfil, giro de 180° e calibração do mouse.
+  mediana 235, σ 0,34), ponto de partida pelo perfil (estilo de mira braço ×0,85 / misto ×1 /
+  pulso ×1,12 / dedos ×1,25; pegada palm ×0,95 / claw ×1 / fingertip ×1,06; mousepad; função),
+  giro de 180° e calibração do mouse.
 - `js/finder.js`: busca **adaptativa** A/B cega. Intervalo inicial ±40%. Escolheu um lado: ×0,55.
   Escolheu o mesmo lado duas vezes seguidas: ×0,85 (continua andando). Empate: ×0,5. Para
   quando o intervalo fica < ±3%, quando chega a 12 rodadas ou quando o jogador diz que está
@@ -28,6 +30,11 @@ busca cega, diagnóstico e replay.
   atirar na cabeça, tiro no corpo, reação, mira tremendo e micro lento, atrás/à frente no strafe,
   peek perdido, inconsistência), cada um com confiança (Wilson/erro padrão) e comparação com a
   sessão toda; `sensTrends` (o que muda com a sens) e `sessionTrend` (aquecimento/cansaço).
+  `movementProfile` mede os **centímetros** que o mouse anda em cada flick/virada (pelo DPI e pela
+  sens) e detecta levantadas do mouse (pausa ≥ 60 ms no meio do movimento). Infere o estilo real:
+  levanta em ≥ 30% dos movimentos de 12 cm+ ou fica ≥ 30% menos eficiente nos longos → pulso;
+  movimentos de 15 cm+ lisos e eficientes → braço; entre os dois → misto. Avisa se não bate com o
+  estilo marcado.
 - `js/stats.js`: estatística (mínimos quadrados, Wilson, z, bootstrap, gerador com semente).
 - `js/model.js`: **modelo de precisão**. Curva desempenho × sens (quadrática em ln(sens) com termo de
   tempo para descontar aprendizado/cansaço; pico = melhor sens; faixa ótima = até 3% do pico; IC 80%
@@ -147,7 +154,10 @@ peça o cm/360 que o usuário usa lá, em vez de inventar um fator.
 5. Depois de escolher, **mantenha por 1–2 semanas** antes de mudar de novo. Trocar toda hora
    atrapalha a memória muscular mais do que uma sens "imperfeita".
 
-Estilo × sens:
+Estilo × sens (o estilo de mira pesa mais que a pegada; os dois costumam andar juntos):
+- Pegada palm (mão apoiada) costuma ir com braço; claw com misto/pulso; fingertip com pulso/dedos.
+- O pulso cobre só alguns centímetros de movimento confortável, por isso quem mira de pulso tende a
+  usar sens mais alta. É tendência física, não regra: a sens final vem dos testes.
 - Braço/arm aimer, mousepad grande → eDPI baixo (≈ 180–260).
 - Pulso/wrist aimer, mousepad menor → eDPI médio (≈ 260–360).
 - Dedos/fingertip → pode ir mais alto, mas cuidado com a precisão.

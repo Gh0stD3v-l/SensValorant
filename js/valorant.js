@@ -96,6 +96,13 @@ export function edpiLabel(e) {
 // Ponto de partida a partir do perfil do jogador.
 // ---------------------------------------------------------------------------
 export const STYLE_FACTOR = { braco: 0.85, misto: 1.0, pulso: 1.12, dedos: 1.25 };
+/**
+ * Pegada: pesa menos que o estilo de mira (as duas andam juntas). Palm costuma ir com braço e sens
+ * mais baixa; fingertip com pulso/dedos e sens mais alta. É tendência, não regra.
+ */
+export const GRIP_FACTOR = { palm: 0.95, claw: 1.0, fingertip: 1.06 };
+export const GRIP_LABEL = { palm: 'palm', claw: 'claw', fingertip: 'fingertip' };
+export const STYLE_LABEL = { braco: 'braço', misto: 'misto', pulso: 'pulso', dedos: 'dedos' };
 export const ROLE_FACTOR = { duelista: 1.05, iniciador: 1.0, controlador: 0.95, sentinela: 0.95, flex: 1.0 };
 
 export function padFactor(padWidthCm) {
@@ -108,7 +115,7 @@ export function padFactor(padWidthCm) {
 
 /**
  * Sugere a sens inicial da busca.
- * @param {{dpi:number, currentSens?:number, style?:string, role?:string, padWidthCm?:number}} p
+ * @param {{dpi:number, currentSens?:number, style?:string, grip?:string, role?:string, padWidthCm?:number}} p
  * @returns {{sens:number, edpi:number, profileEdpi:number, reasons:string[]}}
  */
 export function suggestStart(p) {
@@ -116,12 +123,14 @@ export function suggestStart(p) {
   let profile = PRO_MEDIAN_EDPI;
   reasons.push(`Base: mediana dos pros (~${PRO_MEDIAN_EDPI} de eDPI).`);
   const sf = STYLE_FACTOR[p.style] ?? 1;
-  if (sf !== 1) reasons.push(`Estilo de mira (${p.style}): ×${sf}.`);
+  if (sf !== 1) reasons.push(`Estilo de mira (${STYLE_LABEL[p.style] ?? p.style}): ×${sf}.`);
+  const gf = GRIP_FACTOR[p.grip] ?? 1;
+  if (gf !== 1) reasons.push(`Pegada ${GRIP_LABEL[p.grip]}: ×${gf}.`);
   const pf = padFactor(p.padWidthCm);
   if (pf !== 1) reasons.push(`Mousepad de ${p.padWidthCm} cm: ×${pf}.`);
   const rf = ROLE_FACTOR[p.role] ?? 1;
   if (rf !== 1) reasons.push(`Função (${p.role}): ×${rf}.`);
-  profile *= sf * pf * rf;
+  profile *= sf * gf * pf * rf;
 
   let e = profile;
   if (p.currentSens > 0) {
