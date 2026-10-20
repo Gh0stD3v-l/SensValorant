@@ -51,6 +51,19 @@ Polling rate: não há estatística confiável. As fontes dizem que a maioria do
   melhora o método com **teste cego** (ordem aleatória, sem mostrar o valor) e **medição
   objetiva**.
 
+## Teste no navegador × jogo
+
+Por que a mesma sens pode parecer diferente no site e no Valorant:
+
+- **Tamanho da janela**: o giro em graus é igual, mas numa janela menor que o monitor a mira anda
+  menos pixels por segundo e parece mais lenta. Solução: tela cheia (Fullscreen API).
+- **Escala do Windows / aceleração**: sem `unadjustedMovement` (Firefox, Safari), o navegador pode
+  entregar o movimento já com a aceleração do sistema. Com escala de tela, alguns navegadores
+  reportam `movementX` dividido pela escala. Solução: calibrar com um objeto de tamanho conhecido
+  (cartão 8,56 cm ou A4 29,7 cm) e corrigir as contagens.
+- **FPS e latência**: abaixo de ~90 FPS a mira parece pesada. `pointerrawupdate` reduz a latência.
+- **Sem recoil nem movimento de personagem**: por isso o resultado deve ser confirmado no Campo de Tiro.
+
 ## Fontes
 
 - https://prosettings.net/guides/valorant-options/

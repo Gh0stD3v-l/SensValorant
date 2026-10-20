@@ -135,6 +135,34 @@ export function suggestStart(p) {
   return { sens, edpi: sens * p.dpi, profileEdpi: profile, reasons };
 }
 
+/** Objetos de tamanho padrão para medir uma distância real com o mouse. */
+export const CAL_REFS = {
+  cartao: { name: 'Cartão de banco (lado maior)', cm: 8.56 },
+  a4: { name: 'Folha A4 (lado maior)', cm: 29.7 },
+  regua: { name: 'Régua (10 cm)', cm: 10 },
+};
+
+/**
+ * Calibração do mouse no navegador: compara as contagens recebidas num movimento de distância
+ * conhecida com o DPI informado. Detecta escala do Windows/navegador e aceleração do mouse.
+ * @param {{counts:number, speed:'lento'|'rapido'}[]} swipes
+ * @param {number} refCm distância real percorrida
+ * @param {number} dpi DPI informado pelo jogador
+ * @returns {{measuredDpi:number, dpis:number[], ratio:number, factor:number, ok:boolean, accel:boolean}}
+ */
+export function calibrationResult(swipes, refCm, dpi) {
+  const inch = refCm / CM_PER_INCH;
+  const dpis = swipes.map((s) => Math.abs(s.counts) / inch);
+  const accel = dpis.length >= 2 && Math.max(...dpis) / Math.min(...dpis) > 1.12;
+  // Com aceleração, o movimento lento é o mais próximo do real.
+  const slow = swipes.findIndex((s) => s.speed === 'lento');
+  const measuredDpi = accel && slow >= 0 ? dpis[slow] : dpis.reduce((s, x) => s + x, 0) / dpis.length;
+  const ratio = measuredDpi / dpi;
+  // Medir com régua/cartão tem erro de alguns %: até 7% de diferença é considerado igual.
+  const ok = Math.abs(ratio - 1) <= 0.07;
+  return { measuredDpi, dpis, ratio, factor: ok ? 1 : dpi / measuredDpi, ok, accel };
+}
+
 /**
  * Checa se o jogador consegue virar 180° sem levantar o mouse.
  * @returns {{cm180:number, ratio:number, ok:boolean, msg:string}|null}

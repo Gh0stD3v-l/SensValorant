@@ -1,47 +1,22 @@
-// Teste de mira no navegador que reproduz a câmera do Valorant:
-// 0,07° por contagem × sens, FOV vertical fixo (103° horizontais em 16:9), entrada crua via Pointer Lock.
+// Teste de mira no navegador com a câmera do Valorant:
+// 0,07° por contagem × sens, FOV vertical fixo (103° horizontais em 16:9), entrada crua via Pointer Lock,
+// tela cheia para a mira andar na tela na mesma velocidade que no jogo. Grava tudo para o replay e o diagnóstico.
 
-import { YAW, VFOV, clamp } from './valorant.js';
+import { YAW, clamp } from './valorant.js';
+import { spawn, targetAt, visibleAt, lifetime, hitTest } from './targets.js';
+import { camera, fitCanvas, drawWorld, drawAgent, drawArrow, drawCrosshair, drawText, COLORS } from './scene.js';
 
-const DEG = Math.PI / 180;
-const TIMEOUT_MS = 6000;
 const GAP_MS = 280;
-
-function dir(yaw, pitch) {
-  const y = yaw * DEG;
-  const p = pitch * DEG;
-  return [Math.cos(p) * Math.sin(y), Math.sin(p), Math.cos(p) * Math.cos(y)];
-}
-const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-function angleBetween(y1, p1, y2, p2) {
-  return Math.acos(clamp(dot(dir(y1, p1), dir(y2, p2)), -1, 1)) / DEG;
-}
-
-function shuffle(arr, rng) {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-}
-
-/** Sequência de alvos de um teste: flicks, viradas e micro-ajustes de cabeça. */
-export function makePlan(rng = Math.random, size = 'normal') {
-  const n = size === 'warmup' ? { flick: 4, turn: 1, micro: 4 } : { flick: 6, turn: 2, micro: 8 };
-  const side = () => (rng() < 0.5 ? 0 : 180);
-  const plan = [];
-  for (let i = 0; i < n.flick; i++) plan.push({ type: 'flick', dist: 15 + rng() * 30, angle: side() + (rng() - 0.5) * 30, radius: 1.1 });
-  for (let i = 0; i < n.turn; i++) plan.push({ type: 'turn', dist: 90 + rng() * 60, angle: side() + (rng() - 0.5) * 10, radius: 1.6 });
-  for (let i = 0; i < n.micro; i++) plan.push({ type: 'micro', dist: 2 + rng() * 6, angle: rng() * 360, radius: 0.45 });
-  return shuffle(plan, rng);
-}
+const BLOCK_GAP_MS = 1600;
 
 export class Drill {
   /**
+   * @param {HTMLElement} stage elemento que vai para tela cheia
    * @param {HTMLCanvasElement} canvas
-   * @param {{onFinish:(trials:object[])=>void, onState?:(s:{raw:boolean|null, locked:boolean})=>void}} cb
+   * @param {{onDone:(r:{blocks:object[], fps:number})=>void, onState?:(s:{raw:boolean|null, locked:boolean, fullscreen:boolean})=>void}} cb
    */
-  constructor(canvas, cb) {
+  constructor(stage, canvas, cb) {
+    this.stage = stage;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.cb = cb;
@@ -51,42 +26,58 @@ export class Drill {
     this.raw = null;
     this.active = false;
     this.skipMoves = 0;
-    this._onMove = this._onMove.bind(this);
-    this._onDown = this._onDown.bind(this);
-    this._onLockChange = this._onLockChange.bind(this);
     this._frame = this._frame.bind(this);
     canvas.addEventListener('click', () => this._requestLock());
-    document.addEventListener('pointerlockchange', this._onLockChange);
-    document.addEventListener('mousemove', this._onMove);
-    document.addEventListener('mousedown', this._onDown);
+    document.addEventListener('pointerlockchange', () => this._onLockChange());
+    // pointerrawupdate entrega os movimentos assim que chegam (sem juntar por quadro), quando existe.
+    const moveEvent = 'onpointerrawupdate' in window ? 'pointerrawupdate' : 'mousemove';
+    document.addEventListener(moveEvent, (e) => this._onMove(e));
+    document.addEventListener('mousedown', (e) => this._onDown(e));
   }
 
-  /** @param {{sens:number, plan:object[], label:string}} o */
-  start({ sens, plan, label }) {
-    this.sens = sens;
-    this.plan = plan;
-    this.label = label;
+  /**
+   * @param {{blocks:{label:string, sens:number, plan:object[]}[], countScale?:number, fullscreen?:boolean}} o
+   */
+  run({ blocks, countScale = 1, fullscreen = true }) {
+    this.blocks = blocks.map((b) => ({ ...b, trials: [] }));
+    this.countScale = countScale;
+    this.fullscreen = fullscreen;
+    this.bi = 0;
     this.index = 0;
-    this.trials = [];
     this.target = null;
     this.flash = null;
     this.yaw = 0;
     this.pitch = 0;
-    this.active = true;
     this.nextAt = 0;
+    this.banner = null;
+    this.frames = [];
+    this.fpsShown = 0;
+    this.fpsAt = 0;
+    this.active = true;
     cancelAnimationFrame(this.raf);
     this.raf = requestAnimationFrame(this._frame);
+  }
+
+  get block() {
+    return this.blocks[this.bi];
   }
 
   stop() {
     this.active = false;
     cancelAnimationFrame(this.raf);
-    clearTimeout(this.gapTimer);
+    this._release();
+  }
+
+  _release() {
     if (document.pointerLockElement === this.canvas) document.exitPointerLock();
+    if (document.fullscreenElement === this.stage) document.exitFullscreen().catch(() => {});
   }
 
   async _requestLock() {
     if (!this.active || this.locked) return;
+    if (this.fullscreen && !document.fullscreenElement && this.stage.requestFullscreen) {
+      await this.stage.requestFullscreen().catch(() => {});
+    }
     try {
       await this.canvas.requestPointerLock({ unadjustedMovement: true });
       this.raw = true;
@@ -98,198 +89,195 @@ export class Drill {
         this.raw = false;
       }
     }
-    this.cb.onState?.({ raw: this.raw, locked: this.locked });
+    this._emitState();
+  }
+
+  _emitState() {
+    this.cb.onState?.({ raw: this.raw, locked: this.locked, fullscreen: document.fullscreenElement === this.stage });
   }
 
   _onLockChange() {
     this.locked = document.pointerLockElement === this.canvas;
     this.skipMoves = 2;
-    // Pausa: o alvo atual é refeito do zero quando o jogador voltar.
-    if (!this.locked) this.target = null;
-    if (this.locked && this.active && !this.target) {
-      clearTimeout(this.gapTimer);
-      this._spawn();
+    // Pausa: o alvo atual é descartado e refeito quando o jogador voltar.
+    if (!this.locked) {
+      this.target = null;
+      if (this.active && document.fullscreenElement === this.stage) document.exitFullscreen().catch(() => {});
+    } else {
+      this.nextAt = performance.now() + 400;
     }
-    this.cb.onState?.({ raw: this.raw, locked: this.locked });
+    this._emitState();
   }
 
-  _spawn() {
-    if (this.index >= this.plan.length) return this._finish();
-    const spec = this.plan[this.index];
-    const ty = this.yaw + spec.dist * Math.cos(spec.angle * DEG);
-    const tp = clamp(this.pitch + spec.dist * Math.sin(spec.angle * DEG), -35, 35);
+  _spawn(now) {
+    const spec = this.block.plan[this.index];
+    const t = spawn(spec, this.yaw, this.pitch);
+    const pos = targetAt(t, 0);
     this.target = {
-      spec, yaw: ty, pitch: tp,
-      startYaw: this.yaw, startPitch: this.pitch,
-      dist: angleBetween(this.yaw, this.pitch, ty, tp),
-      t0: performance.now(), misses: 0, overshoot: 0,
+      t, t0: now, startYaw: this.yaw, startPitch: this.pitch,
+      dist: Math.hypot((pos.yaw - this.yaw) * Math.cos((pos.pitch * Math.PI) / 180), pos.pitch - this.pitch),
+      path: [[0, this.yaw, this.pitch]], clicks: [], misses: 0, body: 0, overshoot: 0,
     };
   }
 
-  _record(hit) {
-    const t = this.target;
-    this.trials.push({
-      type: t.spec.type, dist: t.dist, radius: t.spec.radius,
-      time: (performance.now() - t.t0) / 1000, misses: t.misses, hit, overshoot: t.overshoot,
+  _record(hit, now) {
+    const c = this.target;
+    this.block.trials.push({
+      type: c.t.spec.type, dist: c.dist, radius: c.t.spec.head, time: (now - c.t0) / 1000,
+      hit, misses: c.misses, body: c.body, overshoot: c.overshoot,
+      path: c.path, clicks: c.clicks, target: c.t, startYaw: c.startYaw, startPitch: c.startPitch,
+      sens: this.block.sens, label: this.block.label,
     });
-    this.flash = { hit, at: performance.now() };
+    this.flash = { hit, at: now };
     this.target = null;
     this.index += 1;
-    this.gapTimer = setTimeout(() => this.locked && this.active && this._spawn(), GAP_MS);
+    this.nextAt = now + GAP_MS;
+    if (this.index >= this.block.plan.length) {
+      this.bi += 1;
+      this.index = 0;
+      if (this.bi < this.blocks.length) {
+        this.nextAt = now + BLOCK_GAP_MS;
+        this.banner = { text: `Próximo: ${this.block.label}`, until: this.nextAt };
+      }
+    }
   }
 
   _finish() {
     this.active = false;
-    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
-    this._draw();
-    this.cb.onFinish(this.trials);
+    cancelAnimationFrame(this.raf);
+    this._release();
+    const dts = this.frames.slice(1).map((t, i) => t - this.frames[i]).filter((d) => d > 0 && d < 200);
+    const fps = dts.length ? 1000 / (dts.reduce((s, d) => s + d, 0) / dts.length) : 0;
+    this.cb.onDone({ blocks: this.blocks, fps });
   }
 
   _onMove(e) {
-    if (!this.locked || !this.active) return;
+    if (!this.locked || !this.active || !this.block) return;
     if (this.skipMoves > 0) { this.skipMoves--; return; }
-    const k = YAW * this.sens;
+    const k = YAW * this.block.sens * this.countScale;
     this.yaw += e.movementX * k;
     this.pitch = clamp(this.pitch - e.movementY * k, -89, 89);
-    const t = this.target;
-    if (t && t.spec.type !== 'micro') {
+    const c = this.target;
+    if (!c) return;
+    c.path.push([performance.now() - c.t0, this.yaw, this.pitch]);
+    if (c.t.spec.type === 'flick' || c.t.spec.type === 'turn') {
       // Overshoot: quanto a mira passou além do alvo ao longo da linha do flick.
-      const dy = t.yaw - t.startYaw, dp = t.pitch - t.startPitch;
+      const pos = targetAt(c.t, 0);
+      const dy = pos.yaw - c.startYaw, dp = pos.pitch - c.startPitch;
       const len = Math.hypot(dy, dp);
-      const proj = ((this.yaw - t.startYaw) * dy + (this.pitch - t.startPitch) * dp) / len;
-      t.overshoot = Math.max(t.overshoot, proj - len - t.spec.radius);
+      const proj = ((this.yaw - c.startYaw) * dy + (this.pitch - c.startPitch) * dp) / len;
+      c.overshoot = Math.max(c.overshoot, proj - len - c.t.spec.head);
     }
   }
 
   _onDown(e) {
     if (!this.locked || !this.active || e.button !== 0) return;
-    const t = this.target;
-    if (!t) return;
-    if (angleBetween(this.yaw, this.pitch, t.yaw, t.pitch) <= t.spec.radius) this._record(true);
-    else t.misses += 1;
+    const c = this.target;
+    if (!c) return;
+    const now = performance.now();
+    const ms = now - c.t0;
+    const res = visibleAt(c.t, ms) ? hitTest(targetAt(c.t, ms), c.t.spec.head, this.yaw, this.pitch) : null;
+    c.clicks.push([ms, this.yaw, this.pitch, res ?? 'miss']);
+    if (res === 'head') this._record(true, now);
+    else if (res === 'body') c.body += 1;
+    else c.misses += 1;
   }
 
-  _frame() {
+  _frame(now) {
     if (!this.active) return;
-    if (this.target && performance.now() - this.target.t0 > TIMEOUT_MS) this._record(false);
-    this._draw();
+    this.frames.push(now);
+    if (this.frames.length > 2000) this.frames.splice(0, 1000);
+    if (this.target && now - this.target.t0 > lifetime(this.target.t.spec)) this._record(false, now);
+    if (!this.target && this.locked && now >= this.nextAt) {
+      if (this.bi >= this.blocks.length) return this._finish();
+      this._spawn(now);
+    }
+    this._draw(now);
     this.raf = requestAnimationFrame(this._frame);
   }
 
-  _project(yaw, pitch, W, H) {
-    const v = dir(yaw, pitch);
-    const y = this.yaw * DEG, p = this.pitch * DEG;
-    const f = dir(this.yaw, this.pitch);
-    const r = [Math.cos(y), 0, -Math.sin(y)];
-    const u = [-Math.sin(p) * Math.sin(y), Math.cos(p), -Math.sin(p) * Math.cos(y)];
-    const cz = dot(v, f);
-    if (cz <= 0.02) return null;
-    const tanV = Math.tan((VFOV / 2) * DEG);
-    const tanH = tanV * (W / H);
-    return { x: W / 2 + (dot(v, r) / cz / tanH) * (W / 2), y: H / 2 - (dot(v, u) / cz / tanV) * (H / 2) };
-  }
-
-  _draw() {
-    const c = this.canvas;
-    const dpr = window.devicePixelRatio || 1;
-    const W = Math.round(c.clientWidth * dpr), H = Math.round(c.clientHeight * dpr);
-    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
+  _draw(now) {
+    const { W, H, dpr } = fitCanvas(this.canvas);
     const g = this.ctx;
-    g.fillStyle = '#0f1923';
-    g.fillRect(0, 0, W, H);
+    const cam = camera(this.yaw, this.pitch, W, H);
+    drawWorld(g, cam, dpr);
 
-    // Grade esférica para dar referência de movimento.
-    g.lineWidth = 1 * dpr;
-    const base = Math.floor((this.yaw - 100) / 15) * 15;
-    for (let yl = base; yl <= this.yaw + 100; yl += 15) {
-      g.strokeStyle = 'rgba(236,232,225,0.08)';
-      this._polyline(Array.from({ length: 41 }, (_, i) => [yl, -80 + i * 4]), W, H);
-    }
-    for (const pl of [-45, -30, -15, 0, 15, 30, 45]) {
-      g.strokeStyle = pl === 0 ? 'rgba(236,232,225,0.25)' : 'rgba(236,232,225,0.08)';
-      this._polyline(Array.from({ length: 61 }, (_, i) => [this.yaw - 90 + i * 3, pl]), W, H);
-    }
-
-    const t = this.target;
-    if (t) {
-      const pc = this._project(t.yaw, t.pitch, W, H);
-      const pe = this._project(t.yaw, t.pitch + t.spec.radius, W, H);
-      const onScreen = pc && pc.x > 0 && pc.x < W && pc.y > 0 && pc.y < H;
-      if (onScreen && pe) {
-        const rad = Math.max(2 * dpr, Math.hypot(pe.x - pc.x, pe.y - pc.y));
-        g.beginPath();
-        g.arc(pc.x, pc.y, rad, 0, Math.PI * 2);
-        g.fillStyle = '#ff4655';
-        g.fill();
-        g.lineWidth = 1.5 * dpr;
-        g.strokeStyle = '#ffffff';
-        g.stroke();
-      } else {
-        // Seta na borda apontando para o alvo fora da tela.
-        let dy = t.yaw - this.yaw;
-        dy = ((dy + 540) % 360) - 180;
-        const dp = t.pitch - this.pitch;
-        const a = Math.atan2(-dp, dy);
-        const R = Math.min(W, H) * 0.42;
-        const x = W / 2 + Math.cos(a) * R, y = H / 2 + Math.sin(a) * R;
-        g.save();
-        g.translate(x, y);
-        g.rotate(a);
-        g.beginPath();
-        g.moveTo(14 * dpr, 0);
-        g.lineTo(-8 * dpr, -9 * dpr);
-        g.lineTo(-8 * dpr, 9 * dpr);
-        g.closePath();
-        g.fillStyle = '#ff4655';
-        g.fill();
-        g.restore();
+    const c = this.target;
+    if (c) {
+      const ms = now - c.t0;
+      if (visibleAt(c.t, ms)) {
+        const pos = targetAt(c.t, ms);
+        if (!drawAgent(g, cam, pos, c.t.spec.head, dpr)) drawArrow(g, cam, pos, dpr);
       }
     }
+    drawCrosshair(g, cam, dpr);
 
-    // Mira: ponto + linhas curtas, ciano.
-    const cx = W / 2, cy = H / 2;
-    g.fillStyle = '#00ffff';
-    g.fillRect(cx - dpr, cy - dpr, 2 * dpr, 2 * dpr);
-    const gap = 4 * dpr, len = 5 * dpr, th = 2 * dpr;
-    g.fillRect(cx + gap, cy - th / 2, len, th);
-    g.fillRect(cx - gap - len, cy - th / 2, len, th);
-    g.fillRect(cx - th / 2, cy + gap, th, len);
-    g.fillRect(cx - th / 2, cy - gap - len, th, len);
-
-    if (this.flash && performance.now() - this.flash.at < 160) {
-      g.fillStyle = this.flash.hit ? 'rgba(80,220,140,0.15)' : 'rgba(255,70,85,0.15)';
+    if (this.flash && now - this.flash.at < 160) {
+      g.fillStyle = this.flash.hit ? 'rgba(79,209,139,0.14)' : 'rgba(255,70,85,0.14)';
       g.fillRect(0, 0, W, H);
     }
 
-    g.font = `${13 * dpr}px system-ui, sans-serif`;
-    g.fillStyle = 'rgba(236,232,225,0.75)';
-    g.textAlign = 'left';
-    g.fillText(`${this.label}  ·  alvo ${Math.min(this.index + 1, this.plan.length)}/${this.plan.length}`, 12 * dpr, 22 * dpr);
+    if (now - this.fpsAt > 500 && this.frames.length > 10) {
+      const n = this.frames.length;
+      this.fpsShown = Math.round((10 * 1000) / (this.frames[n - 1] - this.frames[n - 11]));
+      this.fpsAt = now;
+    }
+    const b = this.blocks[Math.min(this.bi, this.blocks.length - 1)];
+    const total = this.blocks.reduce((s, x) => s + x.plan.length, 0);
+    const done = this.blocks.slice(0, this.bi).reduce((s, x) => s + x.plan.length, 0) + this.index;
+    drawText(g, `${b.label}  ·  alvo ${Math.min(done + 1, total)}/${total}`, 12 * dpr, 22 * dpr, dpr);
+    drawText(g, `${this.fpsShown} FPS`, W - 12 * dpr, 22 * dpr, dpr, { align: 'right', color: this.fpsShown && this.fpsShown < 90 ? COLORS.bodyHit : COLORS.text });
+
+    if (this.banner && now < this.banner.until && this.locked) {
+      drawText(g, this.banner.text, W / 2, H * 0.32, dpr, { size: 22, weight: 600, align: 'center' });
+    }
 
     if (!this.locked && this.active) {
-      g.fillStyle = 'rgba(15,25,35,0.78)';
+      g.fillStyle = 'rgba(15,25,35,0.8)';
       g.fillRect(0, 0, W, H);
-      g.fillStyle = '#ece8e1';
-      g.textAlign = 'center';
-      g.font = `600 ${18 * dpr}px system-ui, sans-serif`;
-      g.fillText(this.index === 0 ? 'Clique aqui para começar' : 'Pausado. Clique para continuar', W / 2, H / 2 - 8 * dpr);
-      g.font = `${13 * dpr}px system-ui, sans-serif`;
-      g.fillStyle = 'rgba(236,232,225,0.7)';
-      g.fillText('Acerte os alvos vermelhos rápido e sem errar.', W / 2, H / 2 + 18 * dpr);
-      g.fillText('Esc pausa.', W / 2, H / 2 + 38 * dpr);
+      const first = this.bi === 0 && this.index === 0;
+      drawText(g, first ? 'Clique aqui para começar' : 'Pausado. Clique para continuar', W / 2, H / 2 - 10 * dpr, dpr, { size: 18, weight: 600, align: 'center' });
+      drawText(g, 'Acerte as cabeças rápido e sem errar. Corpo não conta.', W / 2, H / 2 + 16 * dpr, dpr, { align: 'center' });
+      drawText(g, 'Esc pausa.', W / 2, H / 2 + 36 * dpr, dpr, { align: 'center' });
     }
   }
+}
 
-  _polyline(points, W, H) {
-    const g = this.ctx;
-    g.beginPath();
-    let open = false;
-    for (const [y, p] of points) {
-      const pr = this._project(y, p, W, H);
-      if (!pr) { open = false; continue; }
-      if (open) g.lineTo(pr.x, pr.y);
-      else { g.moveTo(pr.x, pr.y); open = true; }
+/** Mede contagens do mouse para a calibração (mesmo tipo de captura do teste). */
+export class CountMeter {
+  constructor(el, onUpdate) {
+    this.el = el;
+    this.onUpdate = onUpdate;
+    this.counts = 0;
+    this.measuring = false;
+    const moveEvent = 'onpointerrawupdate' in window ? 'pointerrawupdate' : 'mousemove';
+    document.addEventListener(moveEvent, (e) => {
+      if (!this.measuring || document.pointerLockElement !== this.el) return;
+      this.counts += e.movementX;
+      this.onUpdate(this.counts, false);
+    });
+    document.addEventListener('pointerlockchange', () => {
+      if (document.pointerLockElement !== this.el && this.measuring) {
+        this.measuring = false;
+        this.onUpdate(this.counts, true);
+      }
+    });
+    el.addEventListener('click', () => this.toggle());
+  }
+
+  async toggle() {
+    if (this.measuring) {
+      // O pointerlockchange finaliza a medição.
+      document.exitPointerLock();
+      return;
     }
-    g.stroke();
+    this.counts = 0;
+    try {
+      await this.el.requestPointerLock({ unadjustedMovement: true });
+    } catch {
+      try { await this.el.requestPointerLock(); } catch { return; }
+    }
+    this.measuring = true;
+    this.onUpdate(0, false);
   }
 }

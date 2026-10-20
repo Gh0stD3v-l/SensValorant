@@ -8,23 +8,38 @@ relacionadas ao Valorant.
 ## Proposta do projeto
 
 Construir o **melhor sens finder possível, exclusivo para Valorant**. Ele é um site estático
-(HTML + JS em módulos ES, sem build e sem dependências):
+(HTML + JS em módulos ES, sem build e sem dependências). O usuário prefere testar no **Campo de Tiro**
+(Teste de tiro, Difícil); o teste no navegador serve para busca cega, diagnóstico e replay.
 
 - `js/valorant.js`: constantes do jogo, fórmulas, distribuição de eDPI dos pros (log-normal,
-  mediana 235, σ 0,34), ponto de partida pelo perfil e checagem do giro de 180°.
-- `js/finder.js`: busca A/B **cega** estilo PSA (intervalo ±50% que cai pela metade a cada rodada,
-  com 5 ou 7 rodadas e opção de refinar mais 3).
-- `js/scoring.js`: pontuação = throughput de Fitts × precisão, mais overshoot e tempos de
-  flick e de micro-ajuste.
-- `js/drill.js`: teste de mira em canvas com a câmera do Valorant (Pointer Lock +
-  `unadjustedMovement`, 0,07° × sens por contagem, FOV vertical fixo equivalente a 103° em 16:9).
-- `js/app.js` + `index.html` + `css/style.css`: interface com as abas Encontrar sens,
-  Calculadora e Guia 2026.
-- `docs/pesquisa-2026.md`: pesquisa completa com as fontes. **Atualize-a** quando houver dados novos.
-- Testes: `npm test` (`node --test`). Servidor local: `npm start`.
+  mediana 235, σ 0,34), ponto de partida pelo perfil, giro de 180° e calibração do mouse.
+- `js/finder.js`: busca **adaptativa** A/B cega. Intervalo inicial ±40%. Escolheu um lado: ×0,55.
+  Escolheu o mesmo lado duas vezes seguidas: ×0,85 (continua andando). Empate: ×0,5. Para
+  quando o intervalo fica < ±3%, quando chega a 12 rodadas ou quando o jogador diz que está
+  confortável. Também tem repetir rodada, re-checar ±10% e nudge pela sensação (±3%).
+- `js/targets.js`: alvos em forma de agente (cabeça + corpo; só a cabeça conta). Tipos: flick,
+  virada, micro, strafe (ADAD) e peek. Blocos de 8 alvos.
+- `js/scoring.js`: pontuação = throughput de Fitts × precisão na cabeça. Confere se os blocos
+  A-B-B-A concordam.
+- `js/analysis.js`: diagnóstico dos erros a partir do caminho da mira (passar do alvo, chegar
+  curto, atirar em movimento, mirar baixo/alto, tiro no corpo, reação, micro lento, atrás/à frente
+  no strafe, peek perdido, inconsistência) e tendência de sens.
+- `js/scene.js`: câmera do Valorant (FOV vertical fixo equivalente a 103° em 16:9) e desenho.
+- `js/drill.js`: teste no navegador (Pointer Lock + `unadjustedMovement`, `pointerrawupdate`,
+  tela cheia, correção da calibração, FPS) e `CountMeter` da calibração.
+- `js/replay.js`: replay em primeira pessoa estilo Aim Lab, mais gráfico do caminho visto do alvo.
+- `js/app.js` + `index.html` + `css/style.css`: interface (Encontrar sens, Calculadora, Guia 2026).
+- `docs/pesquisa-2026.md`: pesquisa com fontes. **Atualize-a** quando houver dados novos.
+- Testes: `npm test` (`node --test`). Servidor local: `npm start`. `window.sensFinderDebug` expõe o
+  estado para depuração.
 
-Ao mexer no código: mantenha a matemática pura (sem DOM) em `valorant.js`, `finder.js` e
-`scoring.js`, com testes. Escreva a interface em português do Brasil. Nada de marca ou logo da Riot.
+Por que a sens do site pode parecer diferente da do jogo: janela menor que a tela (use tela
+cheia), escala do Windows ou aceleração no navegador (use a calibração), navegador sem entrada crua
+(use Chrome ou Edge) e FPS baixo. Mesmo assim, a palavra final é do Campo de Tiro.
+
+Ao mexer no código: mantenha a matemática pura (sem DOM) em `valorant.js`, `finder.js`,
+`targets.js`, `scoring.js` e `analysis.js`, com testes. Escreva a interface em português do Brasil.
+Nada de marca ou logo da Riot.
 
 ## Como agir
 

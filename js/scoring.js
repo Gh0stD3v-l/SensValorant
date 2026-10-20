@@ -1,9 +1,9 @@
-// Pontuação objetiva de um teste de mira (Lei de Fitts + precisão + overshoot). Módulo puro.
+// Pontuação objetiva de um teste de mira (Lei de Fitts + precisão). Módulo puro.
 
 /**
  * Throughput de Fitts (bits/s) de uma tentativa.
  * @param {number} distDeg distância angular até o alvo
- * @param {number} radiusDeg raio angular do alvo
+ * @param {number} radiusDeg raio angular da cabeça
  * @param {number} timeS tempo até acertar
  */
 export function throughput(distDeg, radiusDeg, timeS) {
@@ -11,28 +11,44 @@ export function throughput(distDeg, radiusDeg, timeS) {
   return id / Math.max(timeS, 0.05);
 }
 
+const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : 0);
+
 /**
- * @param {{type:string, dist:number, radius:number, time:number, misses:number, hit:boolean, overshoot:number}[]} trials
+ * @param {{type:string, dist:number, radius:number, time:number, misses:number, body?:number, hit:boolean, overshoot:number}[]} trials
  */
 export function summarize(trials) {
   const hits = trials.filter((t) => t.hit);
-  const misses = trials.reduce((s, t) => s + t.misses + (t.hit ? 0 : 1), 0);
+  const misses = trials.reduce((s, t) => s + t.misses + (t.body || 0) + (t.hit ? 0 : 1), 0);
+  const bodies = trials.reduce((s, t) => s + (t.body || 0), 0);
   const clicks = hits.length + misses;
   const accuracy = clicks ? hits.length / clicks : 0;
-  const tp = hits.length ? hits.reduce((s, t) => s + throughput(t.dist, t.radius, t.time), 0) / hits.length : 0;
-  const flicks = trials.filter((t) => t.type !== 'micro');
-  const overshootPct = flicks.length ? (100 * flicks.reduce((s, t) => s + t.overshoot / t.dist, 0)) / flicks.length : 0;
-  const micro = trials.filter((t) => t.type === 'micro' && t.hit);
-  const microTime = micro.length ? micro.reduce((s, t) => s + t.time, 0) / micro.length : 0;
-  const flickHits = flicks.filter((t) => t.hit);
-  const flickTime = flickHits.length ? flickHits.reduce((s, t) => s + t.time, 0) / flickHits.length : 0;
-  return { score: tp * accuracy, throughput: tp, accuracy, overshootPct, microTime, flickTime, hits: hits.length, misses };
+  const tp = mean(hits.map((t) => throughput(t.dist, t.radius, t.time)));
+  const flicks = trials.filter((t) => t.type === 'flick' || t.type === 'turn');
+  const overshootPct = 100 * mean(flicks.map((t) => Math.max(0, t.overshoot) / t.dist));
+  const timeOf = (type) => mean(hits.filter((t) => type.includes(t.type)).map((t) => t.time));
+  return {
+    score: tp * accuracy,
+    throughput: tp,
+    accuracy,
+    overshootPct,
+    flickTime: timeOf(['flick', 'turn']),
+    microTime: timeOf(['micro']),
+    strafeTime: timeOf(['strafe']),
+    peekRate: (() => {
+      const p = trials.filter((t) => t.type === 'peek');
+      return p.length ? p.filter((t) => t.hit).length / p.length : null;
+    })(),
+    hits: hits.length,
+    misses,
+    bodies,
+    targets: trials.length,
+  };
 }
 
 /**
- * Compara duas pontuações e devolve uma sugestão em português.
- * @param {{sens:number, kind:'low'|'high', stats:ReturnType<typeof summarize>}} a
- * @param {{sens:number, kind:'low'|'high', stats:ReturnType<typeof summarize>}} b
+ * Compara A e B. Com blocos A-B-B-A, confere se os dois pares de blocos concordam.
+ * @param {{kind:'low'|'high', stats:object, blocks?:object[]}} a
+ * @param {{kind:'low'|'high', stats:object, blocks?:object[]}} b
  */
 export function compare(a, b) {
   const sa = a.stats.score;
@@ -42,8 +58,18 @@ export function compare(a, b) {
   const notes = [];
   const lowStats = a.kind === 'low' ? a.stats : b.stats;
   const highStats = a.kind === 'high' ? a.stats : b.stats;
-  if (highStats.overshootPct > 18) notes.push('Na sens mais rápida você passou do alvo com frequência (overshoot alto).');
+  if (highStats.overshootPct > 18) notes.push('Na sens mais rápida você passou do alvo com frequência.');
   if (lowStats.flickTime > highStats.flickTime * 1.35) notes.push('Na sens mais lenta os flicks demoraram bem mais.');
-  if (diff < 0.04) return { pick: 'tie', confidence: 'baixa', diff, notes: ['Empate técnico: escolha pela sensação (controle e conforto).', ...notes] };
-  return { pick: best, confidence: diff > 0.15 ? 'alta' : 'média', diff, notes };
+
+  let consistent = true;
+  if (a.blocks?.length === 2 && b.blocks?.length === 2) {
+    const d1 = a.blocks[0].score - b.blocks[0].score;
+    const d2 = a.blocks[1].score - b.blocks[1].score;
+    consistent = Math.sign(d1) === Math.sign(d2);
+  }
+  if (diff < 0.04) return { pick: 'tie', confidence: 'baixa', diff, consistent, notes: ['Empate técnico: escolha pela sensação (controle e conforto).', ...notes] };
+  if (!consistent && diff < 0.12) {
+    return { pick: best, confidence: 'baixa', diff, consistent, notes: ['Os dois blocos de cada sens discordaram. Vale repetir a rodada.', ...notes] };
+  }
+  return { pick: best, confidence: diff > 0.15 ? 'alta' : 'média', diff, consistent, notes };
 }

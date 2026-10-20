@@ -42,3 +42,16 @@ test('checagem do giro de 180°', () => {
   assert.equal(V.turnCheck(0.4, 800, 90).ok, true);
   assert.equal(V.turnCheck(0.4, 800, 0), null);
 });
+
+test('calibração detecta escala e aceleração', () => {
+  // 10 cm a 800 DPI = 3149,6 contagens
+  const ok = V.calibrationResult([{ counts: 3150, speed: 'lento' }, { counts: 3100, speed: 'rapido' }], 10, 800);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.factor, 1);
+  const scaled = V.calibrationResult([{ counts: 2520, speed: 'lento' }, { counts: 2500, speed: 'rapido' }], 10, 800);
+  assert.equal(scaled.ok, false);
+  close(scaled.factor, 1.255, 0.01);
+  const accel = V.calibrationResult([{ counts: 3150, speed: 'lento' }, { counts: 4200, speed: 'rapido' }], 10, 800);
+  assert.equal(accel.accel, true);
+  assert.equal(accel.ok, true);
+});
